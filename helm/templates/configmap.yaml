@@ -55,7 +55,7 @@ data:
   {{- end }}
   {{- end }}
   QUEUE_NAME: {{ .queueName }}
-  APP_JOB_PARALLELISM: {{ .parallelism | quote }}
+  APP_PARALLELISM: {{ .parallelism | quote }}
   QUEUE_WAIT_TIMEOUT: {{ .jobQueue.waitTimeout | quote}}
   MAP_PROVIDER: {{ .map.provider }}
   MAP_URL: {{ .map.url }}
