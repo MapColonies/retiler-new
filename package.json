@@ -1,6 +1,6 @@
 {
   "name": "retiler",
-  "version": "4.0.0",
+  "version": "4.0.1",
   "description": "processor of metatiles into stored tiles",
   "main": "./src/index.ts",
   "scripts": {

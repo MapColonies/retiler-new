@@ -2,6 +2,13 @@
 
 All notable changes to this project will be documented in this file. See [standard-version](https://github.com/conventional-changelog/standard-version) for commit guidelines.
 
+## [4.0.1](https://github.com/MapColonies/retiler/compare/v4.0.0...v4.0.1) (2026-04-07)
+
+
+### Bug Fixes
+
+* tile save  ([#90](https://github.com/MapColonies/retiler/issues/90)) ([2cd609c](https://github.com/MapColonies/retiler/commit/2cd609c1f1b09a710caa93aef9cb1a946d377ad6))
+
 ## [4.0.0](https://github.com/MapColonies/retiler/compare/v3.2.0...v4.0.0) (2025-08-19)
 
 
