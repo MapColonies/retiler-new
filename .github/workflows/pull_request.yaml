@@ -74,7 +74,7 @@ jobs:
           --health-retries 5
 
       minio1:
-        image: bitnami/minio:2022
+        image: bitnamilegacy/minio:2022.9.7
         env:
           MINIO_ROOT_USER: minioadmin1
           MINIO_ROOT_PASSWORD: minioadmin1
@@ -86,7 +86,7 @@ jobs:
           --health-retries 5
 
       minio2:
-        image: bitnami/minio:2022
+        image: bitnamilegacy/minio:2022.9.7
         env:
           MINIO_ROOT_USER: minioadmin2
           MINIO_ROOT_PASSWORD: minioadmin2

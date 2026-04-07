@@ -570,6 +570,11 @@ describe('TileProcessor', () => {
         { z: 0, x: 0, y: 0, metatile: 1, buffer: Buffer.from([]) },
         { z: 0, x: 1, y: 0, metatile: 1, buffer: Buffer.from([]) },
       ];
+      const expectedSplittedTiles = splittedTiles.map((subTile) => ({
+        ...subTile,
+        // eslint-disable-next-line @typescript-eslint/no-unsafe-assignment
+        buffer: expect.any(Uint8Array),
+      }));
       const blankTiles = [
         { z: 0, x: 0, y: 0, metatile: 1 },
         { z: 0, x: 1, y: 0, metatile: 1 },
@@ -595,7 +600,7 @@ describe('TileProcessor', () => {
       expect(mapProv.getMap).toHaveBeenCalled();
       expect(mapSplitterProv.splitMap).toHaveBeenCalled();
       expect(tilesStorageProv.storeTiles).toHaveBeenCalledTimes(1);
-      expect(tilesStorageProv.storeTiles).toHaveBeenCalledWith(splittedTiles);
+      expect(tilesStorageProv.storeTiles).toHaveBeenCalledWith(expectedSplittedTiles);
       expect(tilesStorageProv.deleteTiles).toHaveBeenCalledTimes(1);
       expect(tilesStorageProv.deleteTiles).toHaveBeenCalledWith(blankTiles);
     });

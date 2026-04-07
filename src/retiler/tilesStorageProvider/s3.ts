@@ -1,4 +1,5 @@
 /* eslint-disable @typescript-eslint/naming-convention */ // s3-client object commands arguments
+import crypto from 'crypto';
 import { DeleteObjectsCommand, ObjectIdentifier, PutObjectCommand, S3Client } from '@aws-sdk/client-s3';
 import { EndpointV2 } from '@smithy/types';
 import { type Logger } from '@map-colonies/js-logger';
@@ -31,10 +32,22 @@ export class S3TilesStorage implements TilesStorageProvider {
 
     const key = this.determineKey(baseTile);
 
-    const command = new PutObjectCommand({ Bucket: this.bucket, Key: key, Body: buffer });
+    const md5Hash = crypto.createHash('md5').update(buffer).digest('base64');
+
+    const command = new PutObjectCommand({ Bucket: this.bucket, Key: key, Body: buffer, ContentLength: buffer.byteLength, ContentMD5: md5Hash });
 
     try {
       await this.s3Client.send(command);
+      this.logger.debug({
+        msg: 'successfully stored tile in bucket',
+        tile: baseTile,
+        parent,
+        endpoint: this.endpoint,
+        bucketName: this.bucket,
+        key,
+        contentLength: buffer.byteLength,
+        contentMD5: md5Hash,
+      });
     } catch (error) {
       const s3Error = error as Error;
       this.logger.error({
@@ -154,6 +167,7 @@ export class S3TilesStorage implements TilesStorageProvider {
       count: tiles.length,
       endpoint: this.endpoint,
       bucketName: this.bucket,
+      deletedKeys: keysToDelete.map((k) => k.Key),
     });
   }
 
