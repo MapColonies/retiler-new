@@ -1,0 +1,72 @@
+{{- $tracingUrl := include "retiler.tracingUrl" . -}}
+{{- $metricsUrl := include "retiler.metricsUrl" . -}}
+{{- if .Values.enabled -}}
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: {{ printf "%s-configmap" (include "retiler.fullname" .) }}
+data:
+  LOG_LEVEL: {{ .Values.env.logLevel }}
+  LOG_PRETTY_PRINT_ENABLED: {{ .Values.env.logPrettyPrintEnabled | quote }}
+  {{ if .Values.env.tracing.enabled }}
+  TELEMETRY_TRACING_ENABLED: 'true'
+  TELEMETRY_TRACING_URL: {{ $tracingUrl }}
+  TELEMETRY_TRACING_RATIO: {{ .Values.env.tracing.ratio | quote }}
+  {{ end }}
+  {{ if .Values.env.metrics.enabled }}
+  TELEMETRY_METRICS_ENABLED: 'true'
+  TELEMETRY_METRICS_URL: {{ $metricsUrl }}
+  {{ end }}
+  npm_config_cache: /tmp/
+  {{- with .Values.dbConfig }}
+  DB_HOST: {{ .host }}
+  DB_NAME: {{ .database }}
+  DB_SCHEMA: {{ .schema }}
+  DB_PORT: {{ .port | default 5432 | quote }}
+  {{- end -}}
+  {{- if .Values.dbConfig.sslAuth.enabled }}
+  DB_ENABLE_SSL_AUTH: "true"
+  DB_CERT_PATH: /tmp/certs/{{ .Values.dbConfig.sslAuth.certFileName }}
+  DB_KEY_PATH: /tmp/certs/{{ .Values.dbConfig.sslAuth.keyFileName }}
+  DB_CA_PATH: /tmp/certs/{{ .Values.dbConfig.sslAuth.caFileName }}
+  {{- else }}
+  DB_ENABLE_SSL_AUTH: "false"
+  {{- end }}
+  {{- with .Values.env }}
+  NO_SUPERVISOR: {{ .jobQueue.pgBoss.noSupervisor | quote }}
+  APP_PROJECT_NAME: {{ .project.name }}
+  APP_PROJECT_STATE_URL: {{ .project.stateUrl }}
+  APP_FORCE_PROCESS: {{ .forceProcess | quote }}
+  DETILER_ENABLED: {{ .detiler.enabled | quote }}
+  {{- if .detiler.enabled }}
+  {{- if .detiler.proceedOnFailure }}
+  DETILER_PROCEED_ON_FAILURE: "true"
+  {{- else }}
+  DETILER_PROCEED_ON_FAILURE: "false"
+  {{- end }}
+  DETILER_CLIENT_URL: {{ .detiler.client.url | quote }}
+  DETILER_CLIENT_TIMEOUT: {{ .detiler.client.timeout | quote }}
+  DETILER_CLIENT_ENABLE_RETRY_STRATEGY: {{ .detiler.client.retryStrategy.enabled | quote }}
+  {{- if .detiler.client.retryStrategy.enabled }}
+  DETILER_CLIENT_RETRY_STRATEGY_RETRIES: {{ .detiler.client.retryStrategy.retries | quote }}
+  DETILER_CLIENT_RETRY_STRATEGY_SHOULD_RESET_TIMEOUT: {{ .detiler.client.retryStrategy.shouldResetTimeout | default false | quote }}
+  DETILER_CLIENT_RETRY_STRATEGY_IS_EXPONENTIAL: {{ .detiler.client.retryStrategy.isExponential | default false | quote }}
+  DETILER_CLIENT_RETRY_STRATEGY_DELAY: {{ .detiler.client.retryStrategy.delay | quote }}
+  {{- end }}
+  {{- end }}
+  QUEUE_NAME: {{ .queueName }}
+  APP_PARALLELISM: {{ .parallelism | quote }}
+  QUEUE_WAIT_TIMEOUT: {{ .jobQueue.waitTimeout | quote}}
+  MAP_PROVIDER: {{ .map.provider }}
+  MAP_URL: {{ .map.url }}
+  MAP_FORMAT: {{ .map.format }}
+  MAP_CLIENT_TIMEOUT_MS: {{ .map.client.timeoutMs | quote }}
+  MAP_WMS_VERSION: {{ .map.wms.version }}
+  MAP_WMS_LAYERS: {{ .map.wms.layers | quote }}
+  MAP_WMS_STYLES: {{ .map.wms.styles | quote }}
+  TILES_STORAGE_PROVIDERS: {{ .tilesStorage.providers | quote }}
+  TILES_STORAGE_LAYOUT_FORMAT: {{ .tilesStorage.layout.format }}
+  TILES_STORAGE_LAYOUT_SHOULD_FLIP_Y: {{ .tilesStorage.layout.shouldFlipY | quote }}
+  TILES_STORAGE_SHOULD_FILTER_BLANK_TILES: {{ .tilesStorage.shouldFilterBlankTiles | quote }}
+  {{- end }}
+{{- end }}

@@ -1,0 +1,88 @@
+{
+  "openapiConfig": {},
+  "telemetry": {
+    "logger": {
+      "level": "info",
+      "prettyPrint": false
+    },
+    "metrics": {
+      "enabled": true,
+      "buckets": [0.1, 0.5, 1, 5, 15, 50, 250, 500]
+    },
+    "tracing": {
+      "isEnabled": true,
+      "url": "http://localhost:4318/v1/traces",
+      "traceRatio": 1,
+      "debug": false
+    },
+    "shared": {}
+  },
+  "server": {
+    "port": 8080
+  },
+  "app": {
+    "project": {
+      "name": "default",
+      "stateUrl": "defaultStateUrl"
+    },
+    "forceProcess": false,
+    "queueName": "QUEUE_NAME",
+    "parallelism": 5,
+    "jobQueue": {
+      "waitTimeout": 5000,
+      "pgBoss": {
+        "host": "localhost",
+        "port": 5432,
+        "username": "postgres",
+        "password": "postgres",
+        "schema": "pgboss",
+        "ssl": {
+          "enabled": false,
+          "ca": "",
+          "key": "",
+          "cert": ""
+        },
+        "database": "postgres",
+        "noSupervisor": true,
+        "healthCheckTimeoutMs": 5000
+      }
+    },
+    "map": {
+      "provider": "wms",
+      "url": "https://ows.terrestris.de/osm/service",
+      "format": "image/png",
+      "wms": {
+        "version": "1.1.1",
+        "layers": "OSM-WMS",
+        "styles": ""
+      },
+      "client": {
+        "timeoutMs": 60000
+      }
+    },
+    "tilesStorage": {
+      "providers": [
+        {
+          "kind": "s3",
+          "endpoint": "http://localhost:9000",
+          "bucketName": "bucket-name",
+          "region": "us-east-1",
+          "forcePathStyle": true,
+          "credentials": {
+            "accessKeyId": "accessKeyId",
+            "secretAccessKey": "secretkey"
+          }
+        }
+      ],
+      "layout": {
+        "format": "prefix/{z}/{x}/{y}.png",
+        "shouldFlipY": true
+      },
+      "shouldFilterBlankTiles": false
+    }
+  },
+  "detiler": {
+    "enabled": false,
+    "proceedOnFailure": true
+  }
+}

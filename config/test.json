@@ -1,0 +1,67 @@
+{
+  "app": {
+    "parallelism": 2,
+    "queueName": "TEST_QUEUE",
+    "project": {
+      "name": "test",
+      "stateUrl": "http://replication/state.txt"
+    },
+    "jobQueue": {
+      "waitTimeout": 50,
+      "pgBoss": {
+        "host": "postgres",
+        "port": 5432,
+        "user": "postgres",
+        "password": "1234",
+        "schema": "public",
+        "ssl": {
+          "enabled": false
+        },
+        "database": "postgres",
+        "noSupervisor": true,
+        "healthCheckTimeoutMs": 5000
+      }
+    },
+    "tilesStorage": {
+      "providers": [
+        {
+          "kind": "s3",
+          "endpoint": "http://minio1:9003",
+          "bucketName": "test1",
+          "region": "us-east-1",
+          "forcePathStyle": true,
+          "credentials": {
+            "accessKeyId": "minioadmin1",
+            "secretAccessKey": "minioadmin1"
+          }
+        },
+        {
+          "kind": "s3",
+          "endpoint": "http://minio2:9004",
+          "bucketName": "test2",
+          "region": "us-east-1",
+          "forcePathStyle": true,
+          "credentials": {
+            "accessKeyId": "minioadmin2",
+            "secretAccessKey": "minioadmin2"
+          }
+        },
+        {
+          "kind": "fs",
+          "basePath": "/tmp/test"
+        }
+      ],
+      "layout": {
+        "format": "prefix/{z}/{x}/{y}.png",
+        "shouldFlipY": true
+      }
+    }
+  },
+  "detiler": {
+    "enabled": true,
+    "proceedOnFailure": true,
+    "client": {
+      "url": "http://detiler.com"
+    }
+  }
+}

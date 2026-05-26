@@ -1,0 +1,133 @@
+global:
+  cloudProvider: {}
+  tracing: {}
+  metrics: {}
+  environment: {}
+
+enabled: false
+environment: development
+replicaCount: 1
+revisionHistoryLimit: 5
+initialDelaySeconds: 60
+nodePort: 30030 #for minikube deployment only
+resetOnConfigChange: true
+
+nameOverride: ""
+fullnameOverride: ""
+
+configManagement:
+  offlineMode: false
+  name: 'service-name'
+  version: 'latest'
+  serverUrl: 'http://localhost:8080/api'
+
+podAnnotations: {}
+
+extraVolumes: []
+
+extraVolumeMounts: []
+
+extraEnvVars: []
+
+command: []
+args: []
+# command: [ "/bin/sh", "-c", "--" ]
+# args: [ "while true; do sleep infinity; done;" ]
+
+sidecars: []
+
+cloudProvider:
+  dockerRegistryUrl: my-registry-url.io
+  imagePullSecretName: 'my-registry-secret'
+  flavor: openshift
+
+caSecretName: ''
+caPath: '/usr/local/share/ca-certificates'
+caKey: 'ca.crt'
+
+image:
+  repository: retiler
+  # If commented, appVersion will be taken. See: _helpers.tpl
+  # tag: 'latest'
+  pullPolicy: IfNotPresent
+
+dbConfig:
+  host: localhost
+  username: postgres
+  password: postgres
+  database: retiler
+  # port: 5432
+  sslAuth:
+    enabled: false
+    secretName: secret-name
+    certFileName: postgresql.crt
+    keyFileName: postgresql.key
+    caFileName: root.crt
+
+env:
+  logLevel: info
+  logPrettyPrintEnabled: false
+  project:
+    name: default
+    stateUrl: stateUrl
+  detiler:
+    enabled: false
+    proceedOnFailure: true
+    client:
+      url: detilerUrl
+      timeout: 60000
+      retryStrategy:
+        enabled: fasle
+  forceProcess: false
+  queueName: QUEUE_NAME
+  parallelism: 5
+  jobQueue:
+    waitTimeout: 5000
+    pgBoss:
+      noSupervisor: true
+  map:
+    provider: arcgis
+    url: https://some-domain.com/api/
+    format: image/png
+    wms:
+      version: 1.3.0
+      layers: MAP_WMS_LAYERS
+      styles: MAP_WMS_STYLES
+    client:
+      timeoutMs: 60000
+  tilesStorage:
+    providers: |-
+      [
+        {
+          "kind": "s3",
+          "endpoint": "http://s3-domain/",
+          "bucketName": "bucketName",
+          "region": "region",
+          "forcePathStyle": true,
+          "credentials": {
+            "accessKeyId": "accessKeyId",
+            "secretAccessKey": "secret"
+          }
+        }
+      ]
+    layout:
+      format: prefix/{z}/{x}/{y}.png
+      shouldFlipY: true
+    shouldFilterBlankTiles: false
+  tracing:
+    enabled: false
+    url: http://localhost:55681/v1/trace
+    ratio: 1
+  metrics:
+    enabled: false
+    url: http://localhost:55681/v1/metrics
+
+resources:
+  enabled: true
+  value:
+    limits:
+      cpu: 100m
+      memory: 128Mi
+    requests:
+      cpu: 100m
+      memory: 128Mi

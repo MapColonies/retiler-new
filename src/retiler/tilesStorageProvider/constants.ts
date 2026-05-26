@@ -1,0 +1,3 @@
+export const S3_BATCH_DELETE_MAX_SIZE = 1000;
+
+export const FS_FILE_NOT_FOUND_ERROR_CODE = 'ENOENT';

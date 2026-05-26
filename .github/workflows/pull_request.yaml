@@ -1,0 +1,129 @@
+name: pull_request
+
+on: [pull_request, workflow_dispatch]
+env:
+  DB_HOST: postgres
+  DB_NAME: postgres
+  DB_USERNAME: postgres
+  DB_PASSWORD: postgres
+  DB_SCHEMA: public
+
+jobs:
+  eslint:
+    name: Run Linters
+    runs-on: ubuntu-latest
+
+    strategy:
+      matrix:
+        node: [24.x]
+
+    steps:
+      - name: Check out TS Project Git repository
+        uses: actions/checkout@v5
+
+      - name: Init Nodejs
+        uses: MapColonies/shared-workflows/actions/init-npm@init-npm-v1
+        with:
+          node-version: ${{ matrix.node }}
+
+      - name: Run TS Project linters
+        uses: wearerequired/lint-action@v2
+        with:
+          eslint: true
+          prettier: true
+          eslint_extensions: ts
+          tsc: true
+
+  tests:
+    name: Run Tests
+    runs-on: ubuntu-latest
+    container: node:24-bullseye
+
+    strategy:
+      matrix:
+        node: [24.x]
+
+    services:
+      # Label used to access the service container
+      postgres:
+        # Docker Hub image
+        image: postgres:15
+        # Provide the password for postgres
+        env:
+          POSTGRES_PASSWORD: ${{ env.DB_PASSWORD }}
+          POSTGRES_USER: ${{ env.DB_USERNAME }}
+          POSTGRES_DB: ${{ env.DB_NAME }}
+        ports:
+          - 5432:5432
+        # Set health checks to wait until postgres has started
+        options: >-
+          --health-cmd pg_isready
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 5
+
+      minio1:
+        image: bitnamilegacy/minio:2022.8.13-debian-11-r1
+        env:
+          MINIO_ROOT_USER: minioadmin1
+          MINIO_ROOT_PASSWORD: minioadmin1
+          MINIO_API_PORT_NUMBER: '9003'
+        options: >-
+          --health-cmd "curl -f http://localhost:9003/minio/health/live"
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 5
+
+      minio2:
+        image: bitnamilegacy/minio:2022.8.13-debian-11-r1
+        env:
+          MINIO_ROOT_USER: minioadmin2
+          MINIO_ROOT_PASSWORD: minioadmin2
+          MINIO_API_PORT_NUMBER: '9004'
+        options: >-
+          --health-cmd "curl -f http://localhost:9004/minio/health/live"
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 5
+
+    steps:
+      - name: Check out TS Project Git repository
+        uses: actions/checkout@v4
+
+      - name: Install pg client
+        run: |
+          apt-get update && apt-get install -y lsb-release curl ca-certificates
+          install -d /usr/share/postgresql-common/pgdg
+          curl -o /usr/share/postgresql-common/pgdg/apt.postgresql.org.asc --fail https://www.postgresql.org/media/keys/ACCC4CF8.asc
+          sh -c 'echo "deb [signed-by=/usr/share/postgresql-common/pgdg/apt.postgresql.org.asc] https://apt.postgresql.org/pub/repos/apt $(lsb_release -cs)-pgdg main" > /etc/apt/sources.list.d/pgdg.list'
+          apt-get update
+          apt-get install -y postgresql-client
+
+      - name: Create pgcrypto extension
+        run: psql -h $DB_HOST -d $DB_NAME -U $DB_USERNAME -c 'CREATE EXTENSION pgcrypto;'
+        env:
+          PGPASSWORD: ${{ env.DB_PASSWORD }}
+
+      - name: Init nodejs
+        uses: MapColonies/shared-workflows/actions/init-npm@init-npm-v1.0.0
+        with:
+          node-version: ${{ matrix.node }}
+
+      - name: Run tests
+        run: npm run test
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: Test Reporters ${{ matrix.node }}
+          path: ./reports/**
+
+  build_image:
+    name: Build Image
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Check out Git repository
+        uses: actions/checkout@v4
+
+      - name: build Docker image
+        run: docker build -t test-build:latest .

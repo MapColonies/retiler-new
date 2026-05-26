@@ -1,0 +1,5 @@
+#prevent git from chaning line endings of sh file to /r/n on windows systems
+*.sh		text eol=lf
+# force PNG  to be treated as binary (no transformations)
+*.png       binary
+# *.*         text eol=lf
