@@ -61,7 +61,7 @@
     "@faker-js/faker": "^9.9.0",
     "@jest/globals": "^30.0.5",
     "@map-colonies/eslint-config": "^6.0.0",
-    "@map-colonies/prettier-config": "0.0.1",
+    "@map-colonies/prettier-config": "1.0.0",
     "@map-colonies/tsconfig": "^1.0.1",
     "@smithy/types": "^4.3.1",
     "@swc/core": "^1.11.11",
