@@ -19,7 +19,7 @@ permissions:
 
 jobs:
   build_and_push_docker:
-    uses: MapColonies/shared-workflows/.github/workflows/build-and-push-docker.yaml@v4
+    uses: MapColonies/shared-workflows/.github/workflows/build-and-push-docker.yaml@v5
     secrets: inherit
     with:
       scope: vector
