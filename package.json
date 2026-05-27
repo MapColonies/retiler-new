@@ -28,7 +28,7 @@
   "author": "MapColonies",
   "license": "ISC",
   "dependencies": {
-    "@aws-sdk/client-s3": "^3.850.0",
+    "@aws-sdk/client-s3": "^3.1054.0",
     "@godaddy/terminus": "^4.12.1",
     "@map-colonies/cleanup-registry": "^1.1.0",
     "@map-colonies/config": "^3.0.0",
