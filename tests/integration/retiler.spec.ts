@@ -101,6 +101,7 @@ describe('retiler', function () {
   afterEach(function () {
     nock.cleanAll();
     jest.clearAllMocks();
+    s3SendMock.mockResolvedValue({});
   });
 
   describe('arcgis', function () {
