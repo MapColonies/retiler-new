@@ -11,7 +11,6 @@ import { Tile } from '@map-colonies/tile-calc';
 import format from 'string-format';
 import httpStatusCodes from 'http-status-codes';
 import { CleanupRegistry } from '@map-colonies/cleanup-registry';
-import { jest } from '@jest/globals';
 import { ConfigType, getConfig, initConfig } from '@src/common/config';
 import { registerExternalValues } from '../../src/containerConfig';
 import { consumeAndProcessFactory } from '../../src/app';
@@ -31,7 +30,7 @@ import { TileStoragLayout } from '../../src/retiler/tilesStorageProvider/interfa
 import { FS_FILE_NOT_FOUND_ERROR_CODE } from '../../src/retiler/tilesStorageProvider/constants';
 import { createBlankBuffer, LONG_RUNNING_TEST, waitForJobToBeResolved } from './helpers';
 
-const s3SendMock = jest.fn<() => Promise<unknown>>();
+const s3SendMock = jest.fn<Promise<unknown>, []>();
 
 const cleanupQueue = async (pgBoss: PgBoss, queueName: string): Promise<void> => {
   await pgBoss.start();
@@ -811,7 +810,7 @@ describe('retiler', function () {
           const getMapScope = getMapInterceptor.reply(httpStatusCodes.OK, mapBuffer2048x2048);
           const errorMessage = 'write error';
           const error = new Error(errorMessage);
-          (fsPromises.writeFile as jest.Mock<() => Promise<void>>).mockRejectedValueOnce(error);
+          (fsPromises.writeFile as unknown as jest.Mock).mockRejectedValueOnce(error);
 
           const pgBoss = container.resolve<PgBoss>(SERVICES.PGBOSS);
           const provider = container.resolve<PgBossJobQueueProvider>(JOB_QUEUE_PROVIDER);
@@ -1484,7 +1483,7 @@ describe('retiler', function () {
         const errorMessage = 'send error';
         const error = new Error(errorMessage);
         s3SendMock.mockResolvedValue({});
-        (fsPromises.unlink as jest.Mock<() => Promise<void>>).mockRejectedValueOnce(error);
+        (fsPromises.unlink as unknown as jest.Mock).mockRejectedValueOnce(error);
 
         const pgBoss = container.resolve<PgBoss>(SERVICES.PGBOSS);
         const provider = container.resolve<PgBossJobQueueProvider>(JOB_QUEUE_PROVIDER);
@@ -1520,7 +1519,7 @@ describe('retiler', function () {
         const mockFsNotFoundError = error as NodeJS.ErrnoException;
         mockFsNotFoundError.code = FS_FILE_NOT_FOUND_ERROR_CODE;
         s3SendMock.mockResolvedValue({});
-        (fsPromises.unlink as jest.Mock<() => Promise<void>>).mockRejectedValue(mockFsNotFoundError);
+        (fsPromises.unlink as unknown as jest.Mock).mockRejectedValue(mockFsNotFoundError);
 
         const pgBoss = container.resolve<PgBoss>(SERVICES.PGBOSS);
         const provider = container.resolve<PgBossJobQueueProvider>(JOB_QUEUE_PROVIDER);
