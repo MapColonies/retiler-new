@@ -15,7 +15,7 @@ jobs:
 
     strategy:
       matrix:
-        node: [20.x, 24.x]
+        node: [22.x, 24.x]
 
     steps:
       - name: Check out TS Project Git repository
@@ -48,7 +48,7 @@ jobs:
   tests:
     name: Run Tests
     runs-on: ubuntu-latest
-    container: node:20-bullseye
+    container: node:22-bullseye
 
     strategy:
       matrix:
