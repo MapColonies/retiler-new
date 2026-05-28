@@ -778,7 +778,7 @@ describe('retiler', function () {
           const getMapScope = getMapInterceptor.reply(httpStatusCodes.OK, mapBuffer2048x2048);
           const errorMessage = 'send error';
           const error = new Error(errorMessage);
-          s3SendMock.mockRejectedValueOnce(error);
+          s3SendMock.mockRejectedValue(error);
 
           const pgBoss = container.resolve<PgBoss>(SERVICES.PGBOSS);
           const provider = container.resolve<PgBossJobQueueProvider>(JOB_QUEUE_PROVIDER);
@@ -810,7 +810,7 @@ describe('retiler', function () {
           const getMapScope = getMapInterceptor.reply(httpStatusCodes.OK, mapBuffer2048x2048);
           const errorMessage = 'write error';
           const error = new Error(errorMessage);
-          (fsPromises.writeFile as unknown as jest.Mock).mockRejectedValueOnce(error);
+          (fsPromises.writeFile as unknown as jest.Mock).mockRejectedValue(error);
 
           const pgBoss = container.resolve<PgBoss>(SERVICES.PGBOSS);
           const provider = container.resolve<PgBossJobQueueProvider>(JOB_QUEUE_PROVIDER);
