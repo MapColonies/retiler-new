@@ -81,6 +81,11 @@ spec:
                 name: {{ printf "%s-configmap" (include "retiler.fullname" .) }}
             - secretRef:
                 name: {{ printf "%s-secret" (include "retiler.fullname" .) }}
+          livenessProbe:
+            initialDelaySeconds: {{ .Values.initialDelaySeconds }}
+            httpGet:
+              path: /liveness
+              port: http
           {{- if .Values.resources.enabled }}
           resources:
             {{- toYaml .Values.resources.value | nindent 12 }}

@@ -36,7 +36,7 @@ data:
   NO_SUPERVISOR: {{ .jobQueue.pgBoss.noSupervisor | quote }}
   APP_PROJECT_NAME: {{ .project.name }}
   APP_PROJECT_STATE_URL: {{ .project.stateUrl }}
-  APP_FORCE_PROCESS: {{ .forceProcess }}
+  APP_FORCE_PROCESS: {{ .forceProcess | quote }}
   DETILER_ENABLED: {{ .detiler.enabled | quote }}
   {{- if .detiler.enabled }}
   {{- if .detiler.proceedOnFailure }}

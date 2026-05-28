@@ -1,3 +1,3 @@
-import { vectorRetilerV1Type } from '@map-colonies/schemas';
+import { type VectorRetilerSchemaType } from './config';
 
-export type IProjectConfig = vectorRetilerV1Type['app']['project'];
+export type IProjectConfig = VectorRetilerSchemaType['app']['project'];
