@@ -15,7 +15,7 @@ jobs:
 
     strategy:
       matrix:
-        node: [20.x, 22.x]
+        node: [20.x, 24.x]
 
     steps:
       - name: Check out TS Project Git repository
