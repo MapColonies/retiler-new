@@ -39,16 +39,14 @@ const cleanupQueue = async (pgBoss: PgBoss, queueName: string): Promise<void> =>
   await pgBoss.stop({ graceful: false });
 };
 
-// eslint-disable-next-line @typescript-eslint/no-unsafe-return
 jest.mock('fs/promises', () => ({
-  ...(jest.requireActual('fs/promises') as Record<string, unknown>),
+  ...jest.requireActual<Record<string, unknown>>('fs/promises'),
   writeFile: jest.fn(),
   unlink: jest.fn(),
 }));
 
-// eslint-disable-next-line @typescript-eslint/no-unsafe-return
 jest.mock('@aws-sdk/client-s3', () => ({
-  ...(jest.requireActual('@aws-sdk/client-s3') as Record<string, unknown>),
+  ...jest.requireActual<Record<string, unknown>>('@aws-sdk/client-s3'),
 
   S3Client: jest.fn().mockImplementation(() => ({
     send: s3SendMock,
