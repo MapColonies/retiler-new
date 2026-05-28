@@ -10,12 +10,14 @@ import { timestampToUnix } from '../../src/common/util';
 import { MILLISECONDS_IN_SECOND } from '../../src/common/constants';
 import { MapSplitResult } from '../../src/retiler/types';
 import { createBlankBuffer } from '../integration/helpers';
+import { Tracer } from '@opentelemetry/api';
 
 const REMOTE_STATE_TIMESTAMP = '2024-01-15T21:20:36Z';
 
 describe('TileProcessor', () => {
   let processor: TileProcessor;
   let processorWithMultiStores: TileProcessor;
+  let tracerMock: { startActiveSpan: jest.Mock };
   let mapProv: MapProvider;
   let mapSplitterProv: MapSplitterProvider;
   let tilesStorageProv: TilesStorageProvider;
@@ -54,7 +56,18 @@ describe('TileProcessor', () => {
       mapProv = {
         getMap,
       };
-
+      tracerMock = {
+        startActiveSpan: jest.fn().mockImplementation((_name: string, _options: unknown, fn: (span: unknown) => unknown) =>
+          fn({
+            setStatus: jest.fn(),
+            recordException: jest.fn(),
+            end: jest.fn(),
+            setAttribute: jest.fn(),
+            setAttributes: jest.fn(),
+            addEvent: jest.fn(),
+          })
+        ),
+      };
       mapSplitterProv = {
         splitMap,
       };
@@ -84,6 +97,7 @@ describe('TileProcessor', () => {
 
       processor = new TileProcessor(
         jsLogger({ enabled: false }),
+        tracerMock,
         mapProv,
         mapSplitterProv,
         [tilesStorageProv],
@@ -96,6 +110,7 @@ describe('TileProcessor', () => {
 
       processorWithMultiStores = new TileProcessor(
         jsLogger({ enabled: false }),
+        tracerMock as unknown as Tracer,
         mapProv,
         mapSplitterProv,
         [tilesStorageProv, anotherTilesStorageProv],
@@ -249,6 +264,7 @@ describe('TileProcessor', () => {
     it('should call all the processing functions in a row and resolve without errors if detiler is not configured', async () => {
       const processor = new TileProcessor(
         jsLogger({ enabled: false }),
+        tracerMock as unknown as Tracer,
         mapProv,
         mapSplitterProv,
         [tilesStorageProv],
@@ -366,6 +382,7 @@ describe('TileProcessor', () => {
 
       const tileProcessorWithForce = new TileProcessor(
         jsLogger({ enabled: false }),
+        tracerMock as unknown as Tracer,
         mapProv,
         mapSplitterProv,
         [tilesStorageProv, anotherTilesStorageProv],
@@ -623,6 +640,7 @@ describe('TileProcessor', () => {
 
       const tileProcessorWithNoProceeding = new TileProcessor(
         jsLogger({ enabled: false }),
+        tracerMock as unknown as Tracer,
         mapProv,
         mapSplitterProv,
         [tilesStorageProv, anotherTilesStorageProv],

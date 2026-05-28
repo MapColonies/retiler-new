@@ -3,8 +3,8 @@ import { readPackageJsonSync } from '@map-colonies/read-pkg';
 export const SERVICE_NAME = readPackageJsonSync().name ?? 'unknown_service';
 export const DEFAULT_SERVER_PORT = 80;
 
-export const IGNORED_OUTGOING_TRACE_ROUTES = [/^.*\/v1\/metrics.*$/];
-export const IGNORED_INCOMING_TRACE_ROUTES = [/^.*\/docs.*$/];
+export const IGNORED_OUTGOING_TRACE_ROUTES = [/^.*\/v1\/metrics.*$/, /^.*\/v1\/traces.*$/];
+export const IGNORED_INCOMING_TRACE_ROUTES = [/^.*\/docs.*$/, /^.*\/liveness.*$/, /^.*\/metrics.*$/];
 
 export const ON_SIGNAL = Symbol('onSignal');
 
@@ -27,6 +27,7 @@ export const MAP_PROVIDER_CONFIG = Symbol('MapProviderConfig');
 
 export const S3_BUCKET = Symbol('S3Bucket');
 export const TILES_STORAGE_LAYOUT = Symbol('TilesStorageLayout');
+export const HEALTHCHECK = Symbol('HealthCheck');
 
 export const TILE_SIZE = 256;
 
@@ -52,5 +53,3 @@ export const ExitCodes: Record<string, number> = {
 export const MILLISECONDS_IN_SECOND = 1000;
 
 export const TIMESTAMP_REGEX = /timestamp=\d{4}-\d{2}-\d{2}T\d{2}\\?:\d{2}\\?:\d{2}Z/;
-
-export const stubHealthcheck = async (): Promise<void> => Promise.resolve();

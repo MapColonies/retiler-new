@@ -10,7 +10,10 @@
       "buckets": [0.1, 0.5, 1, 5, 15, 50, 250, 500]
     },
     "tracing": {
-      "isEnabled": false
+      "isEnabled": true,
+      "url": "http://localhost:4318/v1/traces",
+      "traceRatio": 1,
+      "debug": false
     },
     "shared": {}
   },
@@ -40,7 +43,8 @@
           "cert": ""
         },
         "database": "postgres",
-        "noSupervisor": true
+        "noSupervisor": true,
+        "healthCheckTimeoutMs": 5000
       }
     },
     "map": {

@@ -1,11 +1,13 @@
 import { DependencyContainer, Lifecycle, instancePerContainerCachingFactory } from 'tsyringe';
 import jsLogger, { Logger } from '@map-colonies/js-logger';
 import { getOtelMixin } from '@map-colonies/telemetry';
+import { HealthCheck } from '@godaddy/terminus';
 import axios from 'axios';
 import { Registry } from 'prom-client';
 import { trace } from '@opentelemetry/api';
 import { CleanupRegistry } from '@map-colonies/cleanup-registry';
 import { DetilerClient } from '@map-colonies/detiler-client';
+import { PgBoss } from 'pg-boss';
 import {
   JOB_QUEUE_PROVIDER,
   MAP_PROVIDER,
@@ -23,12 +25,13 @@ import {
   METRICS_BUCKETS,
   METRICS_REGISTRY,
   ON_SIGNAL,
+  HEALTHCHECK,
 } from './common/constants';
 import { InjectionObject, registerDependencies } from './common/dependencyRegistration';
 import { getTracing } from './common/tracing';
 import { JobQueueProvider } from './retiler/interfaces';
 import { PgBossJobQueueProvider } from './retiler/jobQueueProvider/pgBossJobQueue';
-import { pgBossFactory } from './retiler/jobQueueProvider/pgbossFactory';
+import { getPgBossHealthCheckFunction, pgBossFactory } from './retiler/jobQueueProvider/pgbossFactory';
 import { ArcgisMapProvider } from './retiler/mapProvider/arcgis/arcgisMapProvider';
 import { SharpMapSplitter } from './retiler/mapSplitterProvider/sharp';
 import { consumeAndProcessFactory } from './app';
@@ -231,6 +234,17 @@ export const registerExternalValues = async (options?: RegisterOptions): Promise
               return detiler;
             }
           }),
+        },
+      },
+      {
+        token: HEALTHCHECK,
+        provider: {
+          useFactory: (depContainer): HealthCheck => {
+            const pgboss = depContainer.resolve<PgBoss>(SERVICES.PGBOSS);
+            const config = depContainer.resolve<ConfigType>(SERVICES.CONFIG);
+            const timeoutMs = config.get('app.jobQueue.pgBoss.healthCheckTimeoutMs') as number;
+            return getPgBossHealthCheckFunction(pgboss, timeoutMs);
+          },
         },
       },
     ];

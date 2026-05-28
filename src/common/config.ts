@@ -1,8 +1,8 @@
 import { type ConfigInstance, config } from '@map-colonies/config';
-import { vectorRetilerV1, type vectorRetilerV1Type } from '@map-colonies/schemas';
+import { vectorRetilerV2, type vectorRetilerV2Type } from '@map-colonies/schemas';
 
 // Choose here the type of the config instance and import this type from the entire application
-type ConfigType = ConfigInstance<vectorRetilerV1Type>;
+type ConfigType = ConfigInstance<vectorRetilerV2Type>;
 
 let configInstance: ConfigType | undefined;
 
@@ -13,7 +13,7 @@ let configInstance: ConfigType | undefined;
  */
 async function initConfig(offlineMode?: boolean): Promise<void> {
   configInstance = await config({
-    schema: vectorRetilerV1,
+    schema: vectorRetilerV2,
     offlineMode,
   });
 }

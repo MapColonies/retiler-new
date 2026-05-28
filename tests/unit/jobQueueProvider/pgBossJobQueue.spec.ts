@@ -1,17 +1,20 @@
 import { setTimeout as setTimeoutPromise } from 'node:timers/promises';
 import { Registry } from 'prom-client';
 import jsLogger from '@map-colonies/js-logger';
-import pgBoss from 'pg-boss';
+import { PgBoss } from 'pg-boss';
 import { serializeError } from 'serialize-error';
 import { PgBossJobQueueProvider } from '../../../src/retiler/jobQueueProvider/pgBossJobQueue';
 import { LONG_RUNNING_TEST } from '../../integration/helpers';
+import { type Tracer } from '@opentelemetry/api';
 
 describe('PgBossJobQueueProvider', () => {
   let provider: PgBossJobQueueProvider;
+  let tracerMock: { startActiveSpan: jest.Mock };
   let pgbossMock: {
     on: jest.Mock;
     start: jest.Mock;
     stop: jest.Mock;
+    createQueue: jest.Mock;
     getQueueSize: jest.Mock;
     complete: jest.Mock;
     fail: jest.Mock;
@@ -23,6 +26,7 @@ describe('PgBossJobQueueProvider', () => {
       on: jest.fn(),
       start: jest.fn(),
       stop: jest.fn(),
+      createQueue: jest.fn().mockResolvedValue(undefined),
       getQueueSize: jest.fn(),
       complete: jest.fn(),
       fail: jest.fn(),
@@ -31,7 +35,21 @@ describe('PgBossJobQueueProvider', () => {
   });
 
   beforeEach(function () {
-    provider = new PgBossJobQueueProvider(pgbossMock as unknown as pgBoss, jsLogger({ enabled: false }), 'queue-name', 50, new Registry());
+    tracerMock = {
+      startActiveSpan: jest
+        .fn()
+        .mockImplementation((_name: string, _options: unknown, fn: (span: unknown) => unknown) =>
+          fn({ setStatus: jest.fn(), recordException: jest.fn(), end: jest.fn() })
+        ),
+    };
+    provider = new PgBossJobQueueProvider(
+      pgbossMock as unknown as pgBoss,
+      jsLogger({ enabled: false }),
+      tracerMock as unknown as Tracer,
+      'queue-name',
+      50,
+      new Registry()
+    );
   });
 
   afterEach(function () {
@@ -74,7 +92,7 @@ describe('PgBossJobQueueProvider', () => {
         const job2 = [{ id: 'id2', data: { key: 'value' } }];
 
         const fnMock = jest.fn();
-        pgbossMock.fetch.mockResolvedValueOnce(job1).mockResolvedValueOnce(job2).mockResolvedValue(null);
+        pgbossMock.fetch.mockResolvedValueOnce(job1).mockResolvedValueOnce(job2).mockResolvedValue([]);
         await provider.startQueue();
         const queuePromise = provider.consumeQueue(fnMock);
         await setTimeoutPromise(50);
@@ -95,7 +113,7 @@ describe('PgBossJobQueueProvider', () => {
       const job3 = [{ id: 'id3', data: { key: 'value' } }];
 
       const fnMock = jest.fn();
-      pgbossMock.fetch.mockResolvedValueOnce(job1).mockResolvedValueOnce(job2).mockResolvedValueOnce(job3).mockResolvedValueOnce(null);
+      pgbossMock.fetch.mockResolvedValueOnce(job1).mockResolvedValueOnce(job2).mockResolvedValueOnce(job3).mockResolvedValueOnce([]);
 
       await provider.startQueue();
       const queuePromise = provider.consumeQueue(fnMock, 2);
@@ -124,7 +142,7 @@ describe('PgBossJobQueueProvider', () => {
       await expect(queuePromise).resolves.not.toThrow();
 
       expect(pgbossMock.complete).not.toHaveBeenCalled();
-      expect(pgbossMock.fail).toHaveBeenCalledWith(id, serializeError(fetchError));
+      expect(pgbossMock.fail).toHaveBeenCalledWith('queue-name', id, serializeError(fetchError));
     });
   });
 });

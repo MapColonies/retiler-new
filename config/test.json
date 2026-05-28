@@ -18,7 +18,8 @@
           "enabled": false
         },
         "database": "postgres",
-        "noSupervisor": true
+        "noSupervisor": true,
+        "healthCheckTimeoutMs": 5000
       }
     },
     "tilesStorage": {
