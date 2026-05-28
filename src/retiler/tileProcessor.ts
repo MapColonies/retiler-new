@@ -118,7 +118,7 @@ export class TileProcessor {
           }
 
           const fetchTimerEnd = this.tilesDurationHistogram?.startTimer({ kind: ProcessKind.FETCH, z: tile.z });
-          const mapBuffer = await this.withSpan(spanName.TILE_FETCH, {}, () => this.mapProvider.getMap(tile));
+          const mapBuffer = await this.withSpan(spanName.TILE_FETCH, {}, async () => this.mapProvider.getMap(tile));
           endMetricTimer(fetchTimerEnd);
 
           const splitTimerEnd = this.tilesDurationHistogram?.startTimer({ kind: ProcessKind.SPLIT });
@@ -180,7 +180,7 @@ export class TileProcessor {
             endMetricTimer(deleteTimerEnd);
           }
 
-          await this.withSpan(spanName.TILE_POSTPROCESS, {}, () => this.postProcess(tile, preRenderTimestamp));
+          await this.withSpan(spanName.TILE_POSTPROCESS, {}, async () => this.postProcess(tile, preRenderTimestamp));
 
           this.tilesCounter?.inc({ status: MetatileStatus.COMPLETED, z: tile.z });
 

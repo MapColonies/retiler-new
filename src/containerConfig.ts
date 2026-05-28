@@ -242,7 +242,7 @@ export const registerExternalValues = async (options?: RegisterOptions): Promise
           useFactory: (depContainer): HealthCheck => {
             const pgboss = depContainer.resolve<PgBoss>(SERVICES.PGBOSS);
             const config = depContainer.resolve<ConfigType>(SERVICES.CONFIG);
-            const timeoutMs = config.get('app.jobQueue.pgBoss.healthCheckTimeoutMs') as number;
+            const timeoutMs = config.get('app.jobQueue.pgBoss.healthCheckTimeoutMs');
             return getPgBossHealthCheckFunction(pgboss, timeoutMs);
           },
         },

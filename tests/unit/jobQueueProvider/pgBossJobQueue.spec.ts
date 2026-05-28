@@ -3,13 +3,13 @@ import { Registry } from 'prom-client';
 import jsLogger from '@map-colonies/js-logger';
 import { PgBoss } from 'pg-boss';
 import { serializeError } from 'serialize-error';
+import { type Tracer } from '@opentelemetry/api';
 import { PgBossJobQueueProvider } from '../../../src/retiler/jobQueueProvider/pgBossJobQueue';
 import { LONG_RUNNING_TEST } from '../../integration/helpers';
-import { type Tracer } from '@opentelemetry/api';
 
 describe('PgBossJobQueueProvider', () => {
   let provider: PgBossJobQueueProvider;
-  let tracerMock: { startActiveSpan: jest.Mock };
+  let tracerMock: { startActiveSpan: jest.Mock; startSpan: jest.Mock };
   let pgbossMock: {
     on: jest.Mock;
     start: jest.Mock;
@@ -41,11 +41,12 @@ describe('PgBossJobQueueProvider', () => {
         .mockImplementation((_name: string, _options: unknown, fn: (span: unknown) => unknown) =>
           fn({ setStatus: jest.fn(), recordException: jest.fn(), end: jest.fn() })
         ),
+      startSpan: jest.fn(),
     };
     provider = new PgBossJobQueueProvider(
-      pgbossMock as unknown as pgBoss,
+      pgbossMock as unknown as PgBoss,
       jsLogger({ enabled: false }),
-      tracerMock as unknown as Tracer,
+      tracerMock,
       'queue-name',
       50,
       new Registry()

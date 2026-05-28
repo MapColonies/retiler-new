@@ -11,6 +11,7 @@ import { Tile } from '@map-colonies/tile-calc';
 import format from 'string-format';
 import httpStatusCodes from 'http-status-codes';
 import { CleanupRegistry } from '@map-colonies/cleanup-registry';
+import { jest } from '@jest/globals';
 import { ConfigType, getConfig, initConfig } from '@src/common/config';
 import { registerExternalValues } from '../../src/containerConfig';
 import { consumeAndProcessFactory } from '../../src/app';
@@ -1322,7 +1323,7 @@ describe('retiler', function () {
 
         const storageProviders = container.resolve<TilesStorageProvider[]>(TILES_STORAGE_PROVIDERS);
         const storeTileSpies = storageProviders.map((provider) => jest.spyOn(provider, 'storeTile'));
-        const deleteTilesSpies = storageProviders.map((provider) => jest.spyOn(provider, 'deleteTiles').mockResolvedValueOnce({} as never));
+        const deleteTilesSpies = storageProviders.map((provider) => jest.spyOn(provider, 'deleteTiles').mockResolvedValueOnce({}));
 
         const job = await waitForJobToBeResolved(pgBoss, queueName, jobId as string);
         await provider.stopQueue();
@@ -1356,7 +1357,7 @@ describe('retiler', function () {
 
         const storageProviders = container.resolve<TilesStorageProvider[]>(TILES_STORAGE_PROVIDERS);
         const storeTileSpies = storageProviders.map((provider) => jest.spyOn(provider, 'storeTile'));
-        const deleteTilesSpies = storageProviders.map((provider) => jest.spyOn(provider, 'deleteTiles').mockResolvedValueOnce({} as never));
+        const deleteTilesSpies = storageProviders.map((provider) => jest.spyOn(provider, 'deleteTiles').mockResolvedValueOnce({}));
 
         const job = await waitForJobToBeResolved(pgBoss, queueName, jobId as string);
         await provider.stopQueue();
@@ -1449,7 +1450,7 @@ describe('retiler', function () {
         const getMapScope = getMapInterceptor.reply(httpStatusCodes.OK, buffer);
         const error1 = { Message: 'err1', Key: 'key1' };
         const error2 = { Message: 'err2', Key: 'key2' };
-        s3SendMock.mockResolvedValue({ Errors: [error1, error2] } as never);
+        s3SendMock.mockResolvedValue({ Errors: [error1, error2] });
 
         const pgBoss = container.resolve<PgBoss>(SERVICES.PGBOSS);
         const provider = container.resolve<PgBossJobQueueProvider>(JOB_QUEUE_PROVIDER);
