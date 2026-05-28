@@ -46,8 +46,6 @@ jest.mock('fs/promises', () => ({
 }));
 
 jest.mock('@aws-sdk/client-s3', () => ({
-  ...jest.requireActual<Record<string, unknown>>('@aws-sdk/client-s3'),
-
   S3Client: jest.fn().mockImplementation(() => ({
     send: s3SendMock,
     destroy: jest.fn(),
@@ -59,6 +57,10 @@ jest.mock('@aws-sdk/client-s3', () => ({
       endpointProvider: jest.fn().mockReturnValue('test-endpoint'),
     },
   })),
+  // eslint-disable-next-line @typescript-eslint/no-unsafe-return
+  PutObjectCommand: jest.fn().mockImplementation((input: unknown) => input),
+  // eslint-disable-next-line @typescript-eslint/no-unsafe-return
+  DeleteObjectsCommand: jest.fn().mockImplementation((input: unknown) => input),
 }));
 
 describe('retiler', function () {
