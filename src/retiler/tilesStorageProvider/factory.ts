@@ -31,7 +31,7 @@ export const tilesStorageProvidersFactory: FactoryFunction<TilesStorageProvider[
 
   const s3ClientsMap = new Map<string, S3Client>();
 
-  return storageProvidersConfig.map((providerConfig) => {
+  return storageProvidersConfig.map((providerConfig: StorageProviderConfig) => {
     if (providerConfig.kind === 's3') {
       const { kind, bucketName, ...clientConfig } = providerConfig;
       let s3Client = s3ClientsMap.get(clientConfig.endpoint);

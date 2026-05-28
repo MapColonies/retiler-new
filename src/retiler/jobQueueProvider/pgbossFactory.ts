@@ -1,7 +1,7 @@
 import { readFileSync } from 'fs';
 import { PgBoss, type ConstructorOptions } from 'pg-boss';
 import { type HealthCheck } from '@godaddy/terminus';
-import { type vectorRetilerSchemaType } from '../../common/config';
+import { type VectorRetilerSchemaType } from '../../common/config';
 import { buildApplicationName } from '../../common/constants';
 
 export const createDatabaseOptions = (dbConfig: PgBossConfig): ConstructorOptions => {
@@ -33,7 +33,7 @@ export const createDatabaseOptions = (dbConfig: PgBossConfig): ConstructorOption
   return poolConfig;
 };
 
-export type PgBossConfig = vectorRetilerSchemaType['app']['jobQueue']['pgBoss'] & { projectName?: string };
+export type PgBossConfig = VectorRetilerSchemaType['app']['jobQueue']['pgBoss'] & { projectName?: string };
 export type PgBossFactoryOptions = PgBossConfig & Partial<ConstructorOptions>;
 
 export const pgBossFactory = (bossConfig: PgBossFactoryOptions): PgBoss => {

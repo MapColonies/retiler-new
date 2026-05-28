@@ -51,10 +51,10 @@ export class TileProcessor {
     @inject(METRICS_REGISTRY) registry?: Registry,
     @inject(METRICS_BUCKETS) metricsBuckets?: number[]
   ) {
-    this.project = this.config.get('app.project');
-    this.forceProcess = this.config.get('app.forceProcess');
-    this.shouldFilterBlankTiles = this.config.get('app.tilesStorage.shouldFilterBlankTiles');
-    this.detilerProceedOnFailure = this.config.get('detiler.proceedOnFailure');
+    this.project = config.get('app.project');
+    this.forceProcess = config.get('app.forceProcess');
+    this.shouldFilterBlankTiles = config.get('app.tilesStorage.shouldFilterBlankTiles');
+    this.detilerProceedOnFailure = config.get('detiler.proceedOnFailure');
 
     if (registry !== undefined) {
       this.tilesDurationHistogram = new Histogram({

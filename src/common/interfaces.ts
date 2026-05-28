@@ -1,3 +1,3 @@
-import { type vectorRetilerSchemaType } from './config';
+import { type VectorRetilerSchemaType } from './config';
 
-export type IProjectConfig = vectorRetilerSchemaType['app']['project'];
+export type IProjectConfig = VectorRetilerSchemaType['app']['project'];

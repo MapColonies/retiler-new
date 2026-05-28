@@ -31,7 +31,7 @@ import { TileStoragLayout } from '../../src/retiler/tilesStorageProvider/interfa
 import { FS_FILE_NOT_FOUND_ERROR_CODE } from '../../src/retiler/tilesStorageProvider/constants';
 import { createBlankBuffer, LONG_RUNNING_TEST, waitForJobToBeResolved } from './helpers';
 
-const s3SendMock = jest.fn();
+const s3SendMock = jest.fn<() => Promise<unknown>>();
 
 const cleanupQueue = async (pgBoss: PgBoss, queueName: string): Promise<void> => {
   await pgBoss.start();
@@ -41,14 +41,14 @@ const cleanupQueue = async (pgBoss: PgBoss, queueName: string): Promise<void> =>
 
 // eslint-disable-next-line @typescript-eslint/no-unsafe-return
 jest.mock('fs/promises', () => ({
-  ...jest.requireActual('fs/promises'),
+  ...(jest.requireActual('fs/promises') as Record<string, unknown>),
   writeFile: jest.fn(),
   unlink: jest.fn(),
 }));
 
 // eslint-disable-next-line @typescript-eslint/no-unsafe-return
 jest.mock('@aws-sdk/client-s3', () => ({
-  ...jest.requireActual('@aws-sdk/client-s3'),
+  ...(jest.requireActual('@aws-sdk/client-s3') as Record<string, unknown>),
 
   S3Client: jest.fn().mockImplementation(() => ({
     send: s3SendMock,
@@ -811,7 +811,7 @@ describe('retiler', function () {
           const getMapScope = getMapInterceptor.reply(httpStatusCodes.OK, mapBuffer2048x2048);
           const errorMessage = 'write error';
           const error = new Error(errorMessage);
-          (fsPromises.writeFile as jest.Mock).mockRejectedValueOnce(error);
+          (fsPromises.writeFile as jest.Mock<() => Promise<void>>).mockRejectedValueOnce(error);
 
           const pgBoss = container.resolve<PgBoss>(SERVICES.PGBOSS);
           const provider = container.resolve<PgBossJobQueueProvider>(JOB_QUEUE_PROVIDER);
@@ -1323,7 +1323,7 @@ describe('retiler', function () {
 
         const storageProviders = container.resolve<TilesStorageProvider[]>(TILES_STORAGE_PROVIDERS);
         const storeTileSpies = storageProviders.map((provider) => jest.spyOn(provider, 'storeTile'));
-        const deleteTilesSpies = storageProviders.map((provider) => jest.spyOn(provider, 'deleteTiles').mockResolvedValueOnce({}));
+        const deleteTilesSpies = storageProviders.map((provider) => jest.spyOn(provider, 'deleteTiles').mockResolvedValueOnce(undefined));
 
         const job = await waitForJobToBeResolved(pgBoss, queueName, jobId as string);
         await provider.stopQueue();
@@ -1357,7 +1357,7 @@ describe('retiler', function () {
 
         const storageProviders = container.resolve<TilesStorageProvider[]>(TILES_STORAGE_PROVIDERS);
         const storeTileSpies = storageProviders.map((provider) => jest.spyOn(provider, 'storeTile'));
-        const deleteTilesSpies = storageProviders.map((provider) => jest.spyOn(provider, 'deleteTiles').mockResolvedValueOnce({}));
+        const deleteTilesSpies = storageProviders.map((provider) => jest.spyOn(provider, 'deleteTiles').mockResolvedValueOnce(undefined));
 
         const job = await waitForJobToBeResolved(pgBoss, queueName, jobId as string);
         await provider.stopQueue();
@@ -1484,7 +1484,7 @@ describe('retiler', function () {
         const errorMessage = 'send error';
         const error = new Error(errorMessage);
         s3SendMock.mockResolvedValue({});
-        (fsPromises.unlink as jest.Mock).mockRejectedValueOnce(error);
+        (fsPromises.unlink as jest.Mock<() => Promise<void>>).mockRejectedValueOnce(error);
 
         const pgBoss = container.resolve<PgBoss>(SERVICES.PGBOSS);
         const provider = container.resolve<PgBossJobQueueProvider>(JOB_QUEUE_PROVIDER);
@@ -1520,7 +1520,7 @@ describe('retiler', function () {
         const mockFsNotFoundError = error as NodeJS.ErrnoException;
         mockFsNotFoundError.code = FS_FILE_NOT_FOUND_ERROR_CODE;
         s3SendMock.mockResolvedValue({});
-        (fsPromises.unlink as jest.Mock).mockRejectedValue(mockFsNotFoundError);
+        (fsPromises.unlink as jest.Mock<() => Promise<void>>).mockRejectedValue(mockFsNotFoundError);
 
         const pgBoss = container.resolve<PgBoss>(SERVICES.PGBOSS);
         const provider = container.resolve<PgBossJobQueueProvider>(JOB_QUEUE_PROVIDER);
