@@ -4,7 +4,9 @@ import { type IDetilerClient } from '@map-colonies/detiler-client';
 import { inject, injectable } from 'tsyringe';
 import { type AxiosInstance } from 'axios';
 import { TILEGRID_WORLD_CRS84, tileToBoundingBox } from '@map-colonies/tile-calc';
+import { type Tracer, type Span, type Attributes, SpanStatusCode } from '@opentelemetry/api';
 import { type ConfigType } from '@src/common/config';
+import { jobAttributes, spanName } from '@src/common/tracing/job';
 import { IProjectConfig } from '../common/interfaces';
 import { fetchTimestampValue, timestampToUnix } from '../common/util';
 import {
@@ -19,8 +21,6 @@ import {
 import { endMetricTimer, MetatileStatus, ProcessKind, ProcessReason, ProcessSkipReason, SubTileStatus } from '../common/metrics';
 import { type MapProvider, type MapSplitterProvider, type TilesStorageProvider } from './interfaces';
 import { TileWithMetadata } from './types';
-import { type Tracer, SpanStatusCode } from '@opentelemetry/api';
-import { JobAttributes, SpanName } from '@src/common/tracing/job';
 
 interface PreProcessReult {
   shouldSkipProcessing: boolean;
@@ -89,132 +89,73 @@ export class TileProcessor {
   }
 
   public async processTile(tile: TileWithMetadata): Promise<void> {
-    return this.tracer.startActiveSpan(
-      SpanName.TILE_PROCESS,
+    return this.withSpan(
+      spanName.TILE_PROCESS,
       {
-        attributes: {
-          [JobAttributes.TILE_Z]: tile.z,
-          [JobAttributes.TILE_X]: tile.x,
-          [JobAttributes.TILE_Y]: tile.y,
-          [JobAttributes.TILE_METATILE]: tile.metatile,
-          [JobAttributes.TILE_FORCE]: tile.force ?? false,
-          [JobAttributes.TILE_STATE]: tile.state,
-          [JobAttributes.MAP_PROVIDER]: this.config.get('app.map.provider'),
-        },
+        [jobAttributes.TILE_Z]: tile.z,
+        [jobAttributes.TILE_X]: tile.x,
+        [jobAttributes.TILE_Y]: tile.y,
+        [jobAttributes.TILE_METATILE]: tile.metatile,
+        [jobAttributes.TILE_FORCE]: tile.force ?? false,
+        [jobAttributes.TILE_STATE]: tile.state,
+        [jobAttributes.MAP_PROVIDER]: this.config.get('app.map.provider'),
       },
       async (span) => {
         try {
           const preRenderTimestamp = Math.floor(Date.now() / MILLISECONDS_IN_SECOND);
 
-          const { shouldSkipProcessing, reason } = await this.tracer.startActiveSpan(SpanName.TILE_PREPROCESS, {}, async (span) => {
-            try {
-              const result = await this.preProcess(tile, preRenderTimestamp);
-              span.setAttribute(JobAttributes.TILE_SKIP_REASON, result.reason ?? '');
-              span.setStatus({ code: SpanStatusCode.OK });
-              return result;
-            } catch (error) {
-              span.setStatus({ code: SpanStatusCode.ERROR });
-              if (error instanceof Error) span.recordException(error);
-              throw error;
-            } finally {
-              span.end();
-            }
+          const { shouldSkipProcessing, reason } = await this.withSpan(spanName.TILE_PREPROCESS, {}, async (innerSpan) => {
+            const result = await this.preProcess(tile, preRenderTimestamp);
+            innerSpan.setAttribute(jobAttributes.TILE_SKIP_REASON, result.reason ?? '');
+            return result;
           });
 
           if (shouldSkipProcessing) {
-            span.setAttribute(JobAttributes.TILE_STATUS, MetatileStatus.SKIPPED);
-            span.setAttribute(JobAttributes.TILE_SKIP_REASON, reason ?? '');
+            span.setAttribute(jobAttributes.TILE_STATUS, MetatileStatus.SKIPPED);
+            span.setAttribute(jobAttributes.TILE_SKIP_REASON, reason ?? '');
             this.tilesCounter?.inc({ status: MetatileStatus.SKIPPED, z: tile.z });
             return;
           }
 
           const fetchTimerEnd = this.tilesDurationHistogram?.startTimer({ kind: ProcessKind.FETCH, z: tile.z });
-          const mapBuffer = await this.tracer.startActiveSpan(SpanName.TILE_FETCH, {}, async (span) => {
-            try {
-              const buffer = await this.mapProvider.getMap(tile);
-              span.setStatus({ code: SpanStatusCode.OK });
-              return buffer;
-            } catch (error) {
-              span.setStatus({ code: SpanStatusCode.ERROR });
-              if (error instanceof Error) span.recordException(error);
-              throw error;
-            } finally {
-              span.end();
-            }
-          });
+          const mapBuffer = await this.withSpan(spanName.TILE_FETCH, {}, () => this.mapProvider.getMap(tile));
           endMetricTimer(fetchTimerEnd);
 
           const splitTimerEnd = this.tilesDurationHistogram?.startTimer({ kind: ProcessKind.SPLIT });
-          const { splittedTiles, isMetatileBlank, blankTiles, outOfBoundsCount } = await this.tracer.startActiveSpan(
-            SpanName.TILE_SPLIT,
-            {},
-            async (span) => {
-              try {
-                const result = await this.mapSplitter.splitMap({ ...tile, buffer: mapBuffer }, this.shouldFilterBlankTiles);
-                span.setAttributes({
-                  [JobAttributes.TILES_STORED_COUNT]: result.splittedTiles.length,
-                  [JobAttributes.TILES_BLANK_COUNT]: result.blankTiles.length,
-                  [JobAttributes.TILES_OUT_OF_BOUNDS_COUNT]: result.outOfBoundsCount,
-                });
-                span.setStatus({ code: SpanStatusCode.OK });
-                return result;
-              } catch (error) {
-                span.setStatus({ code: SpanStatusCode.ERROR });
-                if (error instanceof Error) span.recordException(error);
-                throw error;
-              } finally {
-                span.end();
-              }
-            }
-          );
+          const { splittedTiles, isMetatileBlank, blankTiles, outOfBoundsCount } = await this.withSpan(spanName.TILE_SPLIT, {}, async (innerSpan) => {
+            const result = await this.mapSplitter.splitMap({ ...tile, buffer: mapBuffer }, this.shouldFilterBlankTiles);
+            innerSpan.setAttributes({
+              [jobAttributes.TILES_STORED_COUNT]: result.splittedTiles.length,
+              [jobAttributes.TILES_BLANK_COUNT]: result.blankTiles.length,
+              [jobAttributes.TILES_OUT_OF_BOUNDS_COUNT]: result.outOfBoundsCount,
+            });
+            return result;
+          });
           endMetricTimer(splitTimerEnd);
 
           if (splittedTiles.length > 0) {
             this.logger.debug({ msg: 'storing tiles', count: splittedTiles.length, providersCount: this.tilesStorageProviders.length });
 
             const storeTimerEnd = this.tilesDurationHistogram?.startTimer({ kind: ProcessKind.STORE });
-            await this.tracer.startActiveSpan(
-              SpanName.TILE_STORE,
-              { attributes: { [JobAttributes.TILES_STORED_COUNT]: splittedTiles.length } },
-              async (span) => {
-                try {
-                  await Promise.all(
-                    this.tilesStorageProviders.map(async (tilesStorageProv) =>
-                      tilesStorageProv.storeTiles(splittedTiles.map((subTile) => structuredClone(subTile)))
-                    )
-                  );
-                  span.setStatus({ code: SpanStatusCode.OK });
-                } catch {
-                  span.addEvent('batch failed, retrying per-tile to identify failure');
-
-                  for (const subTile of splittedTiles) {
-                    await this.tracer.startActiveSpan(
-                      'tile.store.single',
-                      { attributes: { 'tile.x': subTile.x, 'tile.y': subTile.y, 'tile.z': subTile.z } },
-                      async (subSpan) => {
-                        try {
-                          await Promise.all(
-                            this.tilesStorageProviders.map(async (tilesStorageProv) => tilesStorageProv.storeTiles([structuredClone(subTile)]))
-                          );
-                          subSpan.setStatus({ code: SpanStatusCode.OK });
-                        } catch (error) {
-                          subSpan.setStatus({ code: SpanStatusCode.ERROR });
-                          if (error instanceof Error) subSpan.recordException(error);
-                          throw error;
-                        } finally {
-                          subSpan.end();
-                        }
-                      }
+            await this.withSpan(spanName.TILE_STORE, { [jobAttributes.TILES_STORED_COUNT]: splittedTiles.length }, async (innerSpan) => {
+              try {
+                await Promise.all(
+                  this.tilesStorageProviders.map(async (tilesStorageProv) =>
+                    tilesStorageProv.storeTiles(splittedTiles.map((subTile) => structuredClone(subTile)))
+                  )
+                );
+              } catch {
+                innerSpan.addEvent('batch failed, retrying per-tile to identify failure');
+                for (const subTile of splittedTiles) {
+                  await this.withSpan('tile.store.single', { 'tile.x': subTile.x, 'tile.y': subTile.y, 'tile.z': subTile.z }, async () => {
+                    await Promise.all(
+                      this.tilesStorageProviders.map(async (tilesStorageProv) => tilesStorageProv.storeTiles([structuredClone(subTile)]))
                     );
-                  }
-
-                  span.setStatus({ code: SpanStatusCode.ERROR });
-                  throw new Error('batch store failed');
-                } finally {
-                  span.end();
+                  });
                 }
+                throw new Error('batch store failed');
               }
-            );
+            });
             endMetricTimer(storeTimerEnd);
           }
 
@@ -222,39 +163,24 @@ export class TileProcessor {
             this.logger.debug({ msg: 'deleting tiles', count: blankTiles.length, providersCount: this.tilesStorageProviders.length });
 
             const deleteTimerEnd = this.tilesDurationHistogram?.startTimer({ kind: ProcessKind.DELETE });
-            await this.tracer.startActiveSpan(
-              SpanName.TILE_DELETE,
-              { attributes: { [JobAttributes.TILES_BLANK_COUNT]: blankTiles.length } },
-              async (span) => {
-                try {
-                  await Promise.all(
-                    this.tilesStorageProviders.map(async (tilesStorageProv) => tilesStorageProv.deleteTiles(structuredClone(blankTiles)))
-                  );
-                  span.setStatus({ code: SpanStatusCode.OK });
-                } catch (error) {
-                  span.setStatus({ code: SpanStatusCode.ERROR });
-                  if (error instanceof Error) span.recordException(error);
-                  throw error;
-                } finally {
-                  span.end();
-                }
+            await this.withSpan(
+              spanName.TILE_DELETE,
+              {
+                [jobAttributes.TILES_BLANK_COUNT]: blankTiles.length,
+                [jobAttributes.TILE_Z]: tile.z,
+                [jobAttributes.TILE_X]: tile.x,
+                [jobAttributes.TILE_Y]: tile.y,
+              },
+              async () => {
+                await Promise.all(
+                  this.tilesStorageProviders.map(async (tilesStorageProv) => tilesStorageProv.deleteTiles(structuredClone(blankTiles)))
+                );
               }
             );
             endMetricTimer(deleteTimerEnd);
           }
 
-          await this.tracer.startActiveSpan(SpanName.TILE_POSTPROCESS, {}, async (span) => {
-            try {
-              await this.postProcess(tile, preRenderTimestamp);
-              span.setStatus({ code: SpanStatusCode.OK });
-            } catch (error) {
-              span.setStatus({ code: SpanStatusCode.ERROR });
-              if (error instanceof Error) span.recordException(error);
-              throw error;
-            } finally {
-              span.end();
-            }
-          });
+          await this.withSpan(spanName.TILE_POSTPROCESS, {}, () => this.postProcess(tile, preRenderTimestamp));
 
           this.tilesCounter?.inc({ status: MetatileStatus.COMPLETED, z: tile.z });
 
@@ -265,19 +191,28 @@ export class TileProcessor {
           this.subTilesCounter?.inc({ status: SubTileStatus.STORED, z: tile.z }, splittedTiles.length);
           this.subTilesCounter?.inc({ status: SubTileStatus.BLANK, z: tile.z }, blankTiles.length);
           this.subTilesCounter?.inc({ status: SubTileStatus.OUT_OF_BOUNDS, z: tile.z }, outOfBoundsCount);
-          span.setStatus({ code: SpanStatusCode.OK });
         } catch (error) {
           this.tilesCounter?.inc({ status: MetatileStatus.FAILED, z: tile.z });
-          span.setStatus({ code: SpanStatusCode.ERROR });
-          if (error instanceof Error) {
-            span.recordException(error);
-          }
           throw error;
-        } finally {
-          span.end();
         }
       }
     );
+  }
+
+  private async withSpan<T>(name: string, attributes: Attributes, fn: (span: Span) => Promise<T>): Promise<T> {
+    return this.tracer.startActiveSpan(name, { attributes }, async (span) => {
+      try {
+        const result = await fn(span);
+        span.setStatus({ code: SpanStatusCode.OK });
+        return result;
+      } catch (error) {
+        span.setStatus({ code: SpanStatusCode.ERROR });
+        if (error instanceof Error) span.recordException(error);
+        throw error;
+      } finally {
+        span.end();
+      }
+    });
   }
 
   private async preProcess(tile: TileWithMetadata, timestamp: number): Promise<PreProcessReult> {

@@ -2,7 +2,7 @@ import { type ConfigInstance, config } from '@map-colonies/config';
 import { vectorRetilerV2, type vectorRetilerV2Type } from '@map-colonies/schemas';
 
 // Choose here the type of the config instance and import this type from the entire application
-type ConfigType = ConfigInstance<vectorRetilerV2Type>;
+type ConfigType = ConfigInstance<vectorRetilerSchemaType>;
 
 let configInstance: ConfigType | undefined;
 
@@ -27,3 +27,6 @@ function getConfig(): ConfigType {
 
 export { getConfig, initConfig };
 export type { ConfigType };
+
+// eslint-disable-next-line @typescript-eslint/naming-convention
+export type vectorRetilerSchemaType = vectorRetilerV2Type;

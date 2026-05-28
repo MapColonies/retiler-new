@@ -1,4 +1,5 @@
-export const JobAttributes = {
+/* eslint-disable @typescript-eslint/naming-convention */
+export const jobAttributes = {
   TILE_Z: 'tile.z',
   TILE_X: 'tile.x',
   TILE_Y: 'tile.y',
@@ -14,7 +15,7 @@ export const JobAttributes = {
   MAP_PROVIDER: 'map.provider',
 } satisfies Record<string, string>;
 
-export const SpanName = {
+export const spanName = {
   TILE_PROCESS: 'tile.process',
   TILE_PREPROCESS: 'tile.pre_process',
   TILE_FETCH: 'tile.fetch',
@@ -22,4 +23,5 @@ export const SpanName = {
   TILE_STORE: 'tile.store',
   TILE_DELETE: 'tile.delete',
   TILE_POSTPROCESS: 'tile.post_process',
+  JOB_PROCESS: 'job.process',
 } satisfies Record<string, string>;

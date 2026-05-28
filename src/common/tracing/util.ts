@@ -1,6 +1,5 @@
 import { trace as traceAPI, Attributes, Context, Span, SpanStatusCode } from '@opentelemetry/api';
-
-export const TRACER_NAME = 'retiler';
+import { SERVICE_NAME } from '../constants';
 
 export const promisifySpan = async <T>(fn: () => Promise<T>, span: Span): Promise<T> => {
   return new Promise((resolve, reject) => {
@@ -33,7 +32,7 @@ export const handleSpanOnError = (span?: Span, error?: unknown): void => {
   span.setStatus({ code: SpanStatusCode.ERROR });
 
   if (error instanceof Error) {
-    let exitCode: number | undefined = undefined;
+    const exitCode: number | undefined = undefined;
 
     const { message, name, stack } = error;
     span.recordException({ code: exitCode, message, name, stack });
@@ -48,7 +47,7 @@ export const startActivePromisifiedSpan = async <T>(
   context: Context,
   fn: () => Promise<T>
 ): Promise<T> => {
-  const tracer = traceAPI.getTracer(TRACER_NAME);
+  const tracer = traceAPI.getTracer(SERVICE_NAME);
   const span = tracer.startSpan(spanName, { attributes: spanAttributes }, context);
   return promisifySpan(fn, span);
 };

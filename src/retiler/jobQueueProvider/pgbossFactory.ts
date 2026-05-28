@@ -1,8 +1,8 @@
 import { readFileSync } from 'fs';
 import { PgBoss, type ConstructorOptions } from 'pg-boss';
 import { type HealthCheck } from '@godaddy/terminus';
-import { type vectorRetilerV2Type } from '@map-colonies/schemas';
-import { SERVICE_NAME } from '../../common/constants';
+import { type vectorRetilerSchemaType } from '../../common/config';
+import { buildApplicationName } from '../../common/constants';
 
 export const createDatabaseOptions = (dbConfig: PgBossConfig): ConstructorOptions => {
   const { ssl, ...databaseOptions } = dbConfig;
@@ -10,7 +10,7 @@ export const createDatabaseOptions = (dbConfig: PgBossConfig): ConstructorOption
   const poolConfig: ConstructorOptions = {
     ...databaseOptions,
     // eslint-disable-next-line @typescript-eslint/naming-convention
-    application_name: `${SERVICE_NAME}-${dbConfig.projectName ?? 'unknown_env'}-${process.env.NODE_ENV ?? 'unknown_env'}`,
+    application_name: buildApplicationName(dbConfig.projectName),
     user: dbConfig.username,
     password: dbConfig.password,
   };
@@ -33,13 +33,13 @@ export const createDatabaseOptions = (dbConfig: PgBossConfig): ConstructorOption
   return poolConfig;
 };
 
-export type PgBossConfig = vectorRetilerV2Type['app']['jobQueue']['pgBoss'] & { projectName?: string };
+export type PgBossConfig = vectorRetilerSchemaType['app']['jobQueue']['pgBoss'] & { projectName?: string };
 export type PgBossFactoryOptions = PgBossConfig & Partial<ConstructorOptions>;
 
 export const pgBossFactory = (bossConfig: PgBossFactoryOptions): PgBoss => {
   const databaseOptions = createDatabaseOptions(bossConfig);
-  const supervise = !bossConfig.noSupervisor;
-  return new PgBoss({ ...bossConfig, ...databaseOptions, supervise, schedule: false });
+
+  return new PgBoss({ ...bossConfig, ...databaseOptions, supervise: bossConfig.supervisor, schedule: false });
 };
 
 export const getPgBossHealthCheckFunction = (boss: PgBoss, pgbossTimeoutMs: number): HealthCheck => {

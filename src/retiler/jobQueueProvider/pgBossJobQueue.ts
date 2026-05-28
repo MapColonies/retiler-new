@@ -5,10 +5,11 @@ import { type Logger } from '@map-colonies/js-logger';
 import { PgBoss, type JobWithMetadata } from 'pg-boss';
 import { inject, injectable } from 'tsyringe';
 import { serializeError } from 'serialize-error';
+import { type Tracer, SpanStatusCode } from '@opentelemetry/api';
+import { jobAttributes, spanName } from '@src/common/tracing/job';
 import { METRICS_REGISTRY, QUEUE_EMPTY_TIMEOUT, QUEUE_NAME, SERVICES } from '../../common/constants';
 import { JobQueueProvider } from '../interfaces';
-import { type Tracer, SpanStatusCode } from '@opentelemetry/api';
-import { JobAttributes } from '@src/common/tracing/job';
+
 @injectable()
 export class PgBossJobQueueProvider implements JobQueueProvider {
   private isRunning = false;
@@ -113,7 +114,7 @@ export class PgBossJobQueueProvider implements JobQueueProvider {
   }
 
   private async handleJob<T, R = void>(job: JobWithMetadata<T>, fn: (value: T, jobId?: string) => Promise<R>): Promise<void> {
-    return this.tracer.startActiveSpan('job.process', { attributes: { [JobAttributes.JOB_ID]: job.id } }, async (span) => {
+    return this.tracer.startActiveSpan(spanName.JOB_PROCESS, { attributes: { [jobAttributes.JOB_ID]: job.id } }, async (span) => {
       try {
         this.logger.debug({ msg: 'job fetched from queue', jobId: job.id });
         await fn(job.data, job.id);
@@ -144,6 +145,7 @@ export class PgBossJobQueueProvider implements JobQueueProvider {
 
       const jobs = await this.pgBoss.fetch<T>(this.queueName, { batchSize: 1, includeMetadata: true });
 
+      // eslint-disable-next-line @typescript-eslint/no-unnecessary-condition
       if (jobs === null || jobs.length === 0 || jobs[0] === undefined) {
         this.logger.info({ msg: 'queue is empty, waiting for data' });
         await setTimeoutPromise(this.queueWaitTimeout);

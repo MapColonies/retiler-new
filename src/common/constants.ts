@@ -28,6 +28,9 @@ export const MAP_PROVIDER_CONFIG = Symbol('MapProviderConfig');
 export const S3_BUCKET = Symbol('S3Bucket');
 export const TILES_STORAGE_LAYOUT = Symbol('TilesStorageLayout');
 export const HEALTHCHECK = Symbol('HealthCheck');
+export const getServiceIdentifier = (projectName: string): string => `${SERVICE_NAME}-${projectName}`;
+export const buildApplicationName = (projectName?: string): string =>
+  `${SERVICE_NAME}-${projectName ?? 'unknown_env'}-${process.env.NODE_ENV ?? 'unknown_env'}`;
 
 export const TILE_SIZE = 256;
 
