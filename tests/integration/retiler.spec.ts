@@ -110,6 +110,8 @@ describe('retiler', function () {
     nock.cleanAll();
     jest.clearAllMocks();
     s3SendMock.mockResolvedValue({});
+    (fsPromises.writeFile as unknown as jest.Mock).mockResolvedValue(undefined);
+    (fsPromises.unlink as unknown as jest.Mock).mockResolvedValue(undefined);
   });
 
   describe('arcgis', function () {
