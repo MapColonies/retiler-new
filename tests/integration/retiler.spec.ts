@@ -11,9 +11,11 @@ import { Tile } from '@map-colonies/tile-calc';
 import format from 'string-format';
 import httpStatusCodes from 'http-status-codes';
 import { CleanupRegistry } from '@map-colonies/cleanup-registry';
+import sharp from 'sharp';
 import { ConfigType, getConfig, initConfig } from '@src/common/config';
 import { registerExternalValues } from '../../src/containerConfig';
 import { consumeAndProcessFactory } from '../../src/app';
+
 import {
   JOB_QUEUE_PROVIDER,
   MAP_URL,
@@ -29,6 +31,12 @@ import { getFlippedY } from '../../src/retiler/util';
 import { TileStoragLayout } from '../../src/retiler/tilesStorageProvider/interfaces';
 import { FS_FILE_NOT_FOUND_ERROR_CODE } from '../../src/retiler/tilesStorageProvider/constants';
 import { createBlankBuffer, LONG_RUNNING_TEST, waitForJobToBeResolved } from './helpers';
+
+const expectPixelsEqual = async (actual: Buffer, expected: Buffer): Promise<void> => {
+  const actualPixels = await sharp(actual).raw().toBuffer();
+  const expectedPixels = await sharp(expected).raw().toBuffer();
+  expect(actualPixels.equals(expectedPixels)).toBe(true);
+};
 
 const s3SendMock = jest.fn<Promise<unknown>, []>();
 
@@ -188,7 +196,7 @@ describe('retiler', function () {
               const storeCall = storeTileSpy.mock.calls[i]![0];
               const key = determineKey({ x: storeCall.x, y: storeCall.y, z: storeCall.z, metatile: storeCall.metatile });
               const expectedBuffer = await fsPromises.readFile(`tests/integration/expected/${key}`);
-              expect(expectedBuffer.compare(storeCall.buffer)).toBe(0);
+              await expectPixelsEqual(storeCall.buffer, expectedBuffer);
             }
           }
 
@@ -230,7 +238,7 @@ describe('retiler', function () {
               const storeCall = storeTileSpy.mock.calls[i]![0];
               const key = determineKey({ x: storeCall.x, y: storeCall.y, z: storeCall.z, metatile: storeCall.metatile });
               const expectedBuffer = await fsPromises.readFile(`tests/integration/expected/${key}`);
-              expect(expectedBuffer.compare(storeCall.buffer)).toBe(0);
+              await expectPixelsEqual(storeCall.buffer, expectedBuffer);
             }
           }
 
@@ -304,7 +312,7 @@ describe('retiler', function () {
               const storeCall = storeTileSpy.mock.calls[i]![0];
               const key = determineKey({ x: storeCall.x, y: storeCall.y, z: storeCall.z, metatile: storeCall.metatile });
               const expectedBuffer = await fsPromises.readFile(`tests/integration/expected/${key}`);
-              expect(expectedBuffer.compare(storeCall.buffer)).toBe(0);
+              await expectPixelsEqual(storeCall.buffer, expectedBuffer);
             }
           }
 
@@ -348,7 +356,7 @@ describe('retiler', function () {
               const storeCall = storeTileSpy.mock.calls[i]![0];
               const key = determineKey({ x: storeCall.x, y: storeCall.y, z: storeCall.z, metatile: storeCall.metatile });
               const expectedBuffer = await fsPromises.readFile(`tests/integration/expected/${key}`);
-              expect(expectedBuffer.compare(storeCall.buffer)).toBe(0);
+              await expectPixelsEqual(storeCall.buffer, expectedBuffer);
             }
           }
 
@@ -423,7 +431,7 @@ describe('retiler', function () {
               const storeCall = storeTileSpy.mock.calls[i]![0];
               const key = determineKey({ x: storeCall.x, y: storeCall.y, z: storeCall.z, metatile: storeCall.metatile });
               const expectedBuffer = await fsPromises.readFile(`tests/integration/expected/${key}`);
-              expect(expectedBuffer.compare(storeCall.buffer)).toBe(0);
+              await expectPixelsEqual(storeCall.buffer, expectedBuffer);
             }
           }
 
@@ -937,7 +945,7 @@ describe('retiler', function () {
               const storeCall = storeTileSpy.mock.calls[i]![0];
               const key = determineKey({ x: storeCall.x, y: storeCall.y, z: storeCall.z, metatile: storeCall.metatile });
               const expectedBuffer = await fsPromises.readFile(`tests/integration/expected/${key}`);
-              expect(expectedBuffer.compare(storeCall.buffer)).toBe(0);
+              await expectPixelsEqual(storeCall.buffer, expectedBuffer);
             }
           }
 
@@ -1090,7 +1098,7 @@ describe('retiler', function () {
               const storeCall = storeTileSpy.mock.calls[i]![0];
               const key = determineKey({ x: storeCall.x, y: storeCall.y, z: storeCall.z, metatile: storeCall.metatile });
               const expectedBuffer = await fsPromises.readFile(`tests/integration/expected/${key}`);
-              expect(expectedBuffer.compare(storeCall.buffer)).toBe(0);
+              await expectPixelsEqual(storeCall.buffer, expectedBuffer);
             }
           }
 
@@ -1212,7 +1220,7 @@ describe('retiler', function () {
               const storeCall = storeTileSpy.mock.calls[i]![0];
               const key = determineKey({ x: storeCall.x, y: storeCall.y, z: storeCall.z, metatile: storeCall.metatile });
               const expectedBuffer = await fsPromises.readFile(`tests/integration/expected/${key}`);
-              expect(expectedBuffer.compare(storeCall.buffer)).toBe(0);
+              await expectPixelsEqual(storeCall.buffer, expectedBuffer);
             }
           }
 
