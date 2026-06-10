@@ -33,7 +33,6 @@ export class TileProcessor {
   private readonly forceProcess: boolean;
   private readonly shouldFilterBlankTiles: boolean;
   private readonly detilerProceedOnFailure: boolean;
-
   private readonly tilesCounter?: Counter<'status' | 'z'>;
   private readonly subTilesCounter?: Counter<'status' | 'z'>;
   private readonly preProcessResultsCounter?: Counter<'result' | 'z'>;
@@ -104,12 +103,7 @@ export class TileProcessor {
         try {
           const preRenderTimestamp = Math.floor(Date.now() / MILLISECONDS_IN_SECOND);
 
-          const { shouldSkipProcessing, reason } = await this.withSpan(spanName.TILE_PREPROCESS, {}, async (innerSpan) => {
-            const result = await this.preProcess(tile, preRenderTimestamp);
-            innerSpan.setAttribute(jobAttributes.TILE_SKIP_REASON, result.reason ?? '');
-            return result;
-          });
-
+          const { shouldSkipProcessing, reason } = await this.runPreProcess(tile, preRenderTimestamp);
           if (shouldSkipProcessing) {
             span.setAttribute(jobAttributes.TILE_STATUS, MetatileStatus.SKIPPED);
             span.setAttribute(jobAttributes.TILE_SKIP_REASON, reason ?? '');
@@ -117,77 +111,23 @@ export class TileProcessor {
             return;
           }
 
-          const fetchTimerEnd = this.tilesDurationHistogram?.startTimer({ kind: ProcessKind.FETCH, z: tile.z });
-          const mapBuffer = await this.withSpan(spanName.TILE_FETCH, {}, async () => this.mapProvider.getMap(tile));
-          endMetricTimer(fetchTimerEnd);
-
-          const splitTimerEnd = this.tilesDurationHistogram?.startTimer({ kind: ProcessKind.SPLIT });
-          const { splittedTiles, isMetatileBlank, blankTiles, outOfBoundsCount } = await this.withSpan(spanName.TILE_SPLIT, {}, async (innerSpan) => {
-            const result = await this.mapSplitter.splitMap({ ...tile, buffer: mapBuffer }, this.shouldFilterBlankTiles);
-            innerSpan.setAttributes({
-              [jobAttributes.TILES_STORED_COUNT]: result.splittedTiles.length,
-              [jobAttributes.TILES_BLANK_COUNT]: result.blankTiles.length,
-              [jobAttributes.TILES_OUT_OF_BOUNDS_COUNT]: result.outOfBoundsCount,
-            });
-            return result;
-          });
-          endMetricTimer(splitTimerEnd);
+          const mapBuffer = await this.fetchMap(tile);
+          const { splittedTiles, isMetatileBlank, blankTiles, outOfBoundsCount } = await this.splitMap(tile, mapBuffer);
 
           if (splittedTiles.length > 0) {
-            this.logger.debug({ msg: 'storing tiles', count: splittedTiles.length, providersCount: this.tilesStorageProviders.length });
-
-            const storeTimerEnd = this.tilesDurationHistogram?.startTimer({ kind: ProcessKind.STORE });
-            await this.withSpan(spanName.TILE_STORE, { [jobAttributes.TILES_STORED_COUNT]: splittedTiles.length }, async (innerSpan) => {
-              try {
-                await Promise.all(
-                  this.tilesStorageProviders.map(async (tilesStorageProv) =>
-                    tilesStorageProv.storeTiles(splittedTiles.map((subTile) => structuredClone(subTile)))
-                  )
-                );
-              } catch {
-                innerSpan.addEvent('batch failed, retrying per-tile to identify failure');
-                for (const subTile of splittedTiles) {
-                  await this.withSpan('tile.store.single', { 'tile.x': subTile.x, 'tile.y': subTile.y, 'tile.z': subTile.z }, async () => {
-                    await Promise.all(
-                      this.tilesStorageProviders.map(async (tilesStorageProv) => tilesStorageProv.storeTiles([structuredClone(subTile)]))
-                    );
-                  });
-                }
-                throw new Error('batch store failed');
-              }
-            });
-            endMetricTimer(storeTimerEnd);
+            await this.storeSplittedTiles(splittedTiles);
           }
 
           if (blankTiles.length > 0) {
-            this.logger.debug({ msg: 'deleting tiles', count: blankTiles.length, providersCount: this.tilesStorageProviders.length });
-
-            const deleteTimerEnd = this.tilesDurationHistogram?.startTimer({ kind: ProcessKind.DELETE });
-            await this.withSpan(
-              spanName.TILE_DELETE,
-              {
-                [jobAttributes.TILES_BLANK_COUNT]: blankTiles.length,
-                [jobAttributes.TILE_Z]: tile.z,
-                [jobAttributes.TILE_X]: tile.x,
-                [jobAttributes.TILE_Y]: tile.y,
-              },
-              async () => {
-                await Promise.all(
-                  this.tilesStorageProviders.map(async (tilesStorageProv) => tilesStorageProv.deleteTiles(structuredClone(blankTiles)))
-                );
-              }
-            );
-            endMetricTimer(deleteTimerEnd);
+            await this.deleteBlankTiles(tile, blankTiles);
           }
 
-          await this.withSpan(spanName.TILE_POSTPROCESS, {}, async () => this.postProcess(tile, preRenderTimestamp));
+          await this.runPostProcess(tile, preRenderTimestamp);
 
           this.tilesCounter?.inc({ status: MetatileStatus.COMPLETED, z: tile.z });
-
           if (isMetatileBlank) {
             this.tilesCounter?.inc({ status: MetatileStatus.BLANK, z: tile.z });
           }
-
           this.subTilesCounter?.inc({ status: SubTileStatus.STORED, z: tile.z }, splittedTiles.length);
           this.subTilesCounter?.inc({ status: SubTileStatus.BLANK, z: tile.z }, blankTiles.length);
           this.subTilesCounter?.inc({ status: SubTileStatus.OUT_OF_BOUNDS, z: tile.z }, outOfBoundsCount);
@@ -197,6 +137,84 @@ export class TileProcessor {
         }
       }
     );
+  }
+
+  private async runPreProcess(tile: TileWithMetadata, preRenderTimestamp: number): Promise<PreProcessReult> {
+    return this.withSpan(spanName.TILE_PREPROCESS, {}, async (innerSpan) => {
+      const result = await this.preProcess(tile, preRenderTimestamp);
+      innerSpan.setAttribute(jobAttributes.TILE_SKIP_REASON, result.reason ?? '');
+      return result;
+    });
+  }
+
+  private async fetchMap(tile: TileWithMetadata): Promise<Buffer> {
+    const fetchTimerEnd = this.tilesDurationHistogram?.startTimer({ kind: ProcessKind.FETCH, z: tile.z });
+    const mapBuffer = await this.withSpan(spanName.TILE_FETCH, {}, async () => this.mapProvider.getMap(tile));
+    endMetricTimer(fetchTimerEnd);
+    return mapBuffer;
+  }
+
+  private async splitMap(tile: TileWithMetadata, mapBuffer: Buffer): Promise<Awaited<ReturnType<MapSplitterProvider['splitMap']>>> {
+    const splitTimerEnd = this.tilesDurationHistogram?.startTimer({ kind: ProcessKind.SPLIT });
+    const result = await this.withSpan(spanName.TILE_SPLIT, {}, async (innerSpan) => {
+      const splitResult = await this.mapSplitter.splitMap({ ...tile, buffer: mapBuffer }, this.shouldFilterBlankTiles);
+      innerSpan.setAttributes({
+        [jobAttributes.TILES_STORED_COUNT]: splitResult.splittedTiles.length,
+        [jobAttributes.TILES_BLANK_COUNT]: splitResult.blankTiles.length,
+        [jobAttributes.TILES_OUT_OF_BOUNDS_COUNT]: splitResult.outOfBoundsCount,
+      });
+      return splitResult;
+    });
+    endMetricTimer(splitTimerEnd);
+    return result;
+  }
+
+  private async storeSplittedTiles(splittedTiles: Awaited<ReturnType<MapSplitterProvider['splitMap']>>['splittedTiles']): Promise<void> {
+    this.logger.debug({ msg: 'storing tiles', count: splittedTiles.length, providersCount: this.tilesStorageProviders.length });
+    const storeTimerEnd = this.tilesDurationHistogram?.startTimer({ kind: ProcessKind.STORE });
+    await this.withSpan(spanName.TILE_STORE, { [jobAttributes.TILES_STORED_COUNT]: splittedTiles.length }, async (innerSpan) => {
+      try {
+        await Promise.all(
+          this.tilesStorageProviders.map(async (tilesStorageProv) =>
+            tilesStorageProv.storeTiles(splittedTiles.map((subTile) => structuredClone(subTile)))
+          )
+        );
+      } catch {
+        innerSpan.addEvent('batch failed, retrying per-tile to identify failure');
+        for (const subTile of splittedTiles) {
+          await this.withSpan('tile.store.single', { 'tile.x': subTile.x, 'tile.y': subTile.y, 'tile.z': subTile.z }, async () => {
+            await Promise.all(this.tilesStorageProviders.map(async (tilesStorageProv) => tilesStorageProv.storeTiles([structuredClone(subTile)])));
+          });
+        }
+        throw new Error('batch store failed');
+      }
+    });
+    endMetricTimer(storeTimerEnd);
+  }
+
+  private async deleteBlankTiles(
+    tile: TileWithMetadata,
+    blankTiles: Awaited<ReturnType<MapSplitterProvider['splitMap']>>['blankTiles']
+  ): Promise<void> {
+    this.logger.debug({ msg: 'deleting tiles', count: blankTiles.length, providersCount: this.tilesStorageProviders.length });
+    const deleteTimerEnd = this.tilesDurationHistogram?.startTimer({ kind: ProcessKind.DELETE });
+    await this.withSpan(
+      spanName.TILE_DELETE,
+      {
+        [jobAttributes.TILES_BLANK_COUNT]: blankTiles.length,
+        [jobAttributes.TILE_Z]: tile.z,
+        [jobAttributes.TILE_X]: tile.x,
+        [jobAttributes.TILE_Y]: tile.y,
+      },
+      async () => {
+        await Promise.all(this.tilesStorageProviders.map(async (tilesStorageProv) => tilesStorageProv.deleteTiles(structuredClone(blankTiles))));
+      }
+    );
+    endMetricTimer(deleteTimerEnd);
+  }
+
+  private async runPostProcess(tile: TileWithMetadata, preRenderTimestamp: number): Promise<void> {
+    await this.withSpan(spanName.TILE_POSTPROCESS, {}, async () => this.postProcess(tile, preRenderTimestamp));
   }
 
   private async withSpan<T>(name: string, attributes: Attributes, fn: (span: Span) => Promise<T>): Promise<T> {
