@@ -1343,7 +1343,7 @@ describe('retiler', function () {
         expect(job).toHaveProperty('state', 'completed');
 
         storeTileSpies.forEach((spy) => expect(spy.mock.calls).toHaveLength(0));
-        deleteTilesSpies.forEach((spy) => expect(spy.mock.calls).toHaveLength(1));
+        deleteTilesSpies.forEach((spy) => expect(spy.mock.calls).toHaveLength(4));
 
         getMapScope.done();
         detilerScope.done();
@@ -1377,7 +1377,7 @@ describe('retiler', function () {
         expect(job).toHaveProperty('state', 'completed');
 
         storeTileSpies.forEach((spy) => expect(spy.mock.calls).toHaveLength(1));
-        deleteTilesSpies.forEach((spy) => expect(spy.mock.calls).toHaveLength(1));
+        deleteTilesSpies.forEach((spy) => expect(spy.mock.calls).toHaveLength(3));
 
         getMapScope.done();
         detilerScope.done();
