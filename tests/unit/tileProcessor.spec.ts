@@ -578,8 +578,11 @@ describe('TileProcessor', () => {
       expect(mapProv.getMap).toHaveBeenCalled();
       expect(mapSplitterProv.splitMap).toHaveBeenCalled();
       expect(tilesStorageProv.storeTiles).toHaveBeenCalledTimes(0);
-      expect(tilesStorageProv.deleteTiles).toHaveBeenCalledTimes(1);
-      expect(tilesStorageProv.deleteTiles).toHaveBeenCalledWith(blankTiles);
+      expect(tilesStorageProv.deleteTiles).toHaveBeenCalledTimes(4);
+      expect(tilesStorageProv.deleteTiles).toHaveBeenNthCalledWith(1, [blankTiles[0]]);
+      expect(tilesStorageProv.deleteTiles).toHaveBeenNthCalledWith(2, [blankTiles[1]]);
+      expect(tilesStorageProv.deleteTiles).toHaveBeenNthCalledWith(3, [blankTiles[2]]);
+      expect(tilesStorageProv.deleteTiles).toHaveBeenNthCalledWith(4, [blankTiles[3]]);
     });
 
     it('should store splitted tiles and delete blank tiles and resolve without errors', async () => {
@@ -617,10 +620,14 @@ describe('TileProcessor', () => {
       expect(mockedDetiler.queryCooldownsAsyncGenerator).not.toHaveBeenCalled();
       expect(mapProv.getMap).toHaveBeenCalled();
       expect(mapSplitterProv.splitMap).toHaveBeenCalled();
-      expect(tilesStorageProv.storeTiles).toHaveBeenCalledTimes(1);
-      expect(tilesStorageProv.storeTiles).toHaveBeenCalledWith(expectedSplittedTiles);
-      expect(tilesStorageProv.deleteTiles).toHaveBeenCalledTimes(1);
-      expect(tilesStorageProv.deleteTiles).toHaveBeenCalledWith(blankTiles);
+      expect(tilesStorageProv.storeTiles).toHaveBeenCalledTimes(2);
+      expect(tilesStorageProv.storeTiles).toHaveBeenNthCalledWith(1, [expectedSplittedTiles[0]]);
+      expect(tilesStorageProv.storeTiles).toHaveBeenNthCalledWith(2, [expectedSplittedTiles[1]]);
+      expect(tilesStorageProv.deleteTiles).toHaveBeenCalledTimes(4);
+      expect(tilesStorageProv.deleteTiles).toHaveBeenNthCalledWith(1, [blankTiles[0]]);
+      expect(tilesStorageProv.deleteTiles).toHaveBeenNthCalledWith(2, [blankTiles[1]]);
+      expect(tilesStorageProv.deleteTiles).toHaveBeenNthCalledWith(3, [blankTiles[2]]);
+      expect(tilesStorageProv.deleteTiles).toHaveBeenNthCalledWith(4, [blankTiles[3]]);
     });
 
     it('should fail if setTileDetails fails and configured to not proceed on detiler failure', async () => {
