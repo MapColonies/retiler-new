@@ -170,24 +170,24 @@ export class TileProcessor {
   }
 
   private async storeSplittedTiles(splittedTiles: Awaited<ReturnType<MapSplitterProvider['splitMap']>>['splittedTiles']): Promise<void> {
-    this.logger.debug({ msg: 'storing tiles', count: splittedTiles.length, providersCount: this.tilesStorageProviders.length });
+    this.logger.debug({
+      msg: 'storing tiles',
+      count: splittedTiles.length,
+      providersCount: this.tilesStorageProviders.length,
+      tiles: splittedTiles.map((t) => `${t.z}/${t.x}/${t.y}`),
+    });
     const storeTimerEnd = this.tilesDurationHistogram?.startTimer({ kind: ProcessKind.STORE });
-    await this.withSpan(spanName.TILE_STORE, { [jobAttributes.TILES_STORED_COUNT]: splittedTiles.length }, async (innerSpan) => {
-      try {
-        await Promise.all(
-          this.tilesStorageProviders.map(async (tilesStorageProv) =>
-            tilesStorageProv.storeTiles(splittedTiles.map((subTile) => structuredClone(subTile)))
-          )
-        );
-      } catch {
-        innerSpan.addEvent('batch failed, retrying per-tile to identify failure');
-        for (const subTile of splittedTiles) {
-          await this.withSpan('tile.store.single', { 'tile.x': subTile.x, 'tile.y': subTile.y, 'tile.z': subTile.z }, async () => {
-            await Promise.all(this.tilesStorageProviders.map(async (tilesStorageProv) => tilesStorageProv.storeTiles([structuredClone(subTile)])));
-          });
-        }
-        throw new Error('batch store failed');
-      }
+    await this.withSpan(spanName.TILE_STORE, { [jobAttributes.TILES_STORED_COUNT]: splittedTiles.length }, async () => {
+      await Promise.all(
+        this.tilesStorageProviders.map(async (tilesStorageProv) => {
+          for (const subTile of splittedTiles) {
+            this.logger.debug({ msg: 'storing subtile', z: subTile.z, x: subTile.x, y: subTile.y });
+            await this.withSpan('tile.store.single', { 'tile.z': subTile.z, 'tile.x': subTile.x, 'tile.y': subTile.y }, async () => {
+              await tilesStorageProv.storeTiles([structuredClone(subTile)]);
+            });
+          }
+        })
+      );
     });
     endMetricTimer(storeTimerEnd);
   }
@@ -196,7 +196,12 @@ export class TileProcessor {
     tile: TileWithMetadata,
     blankTiles: Awaited<ReturnType<MapSplitterProvider['splitMap']>>['blankTiles']
   ): Promise<void> {
-    this.logger.debug({ msg: 'deleting tiles', count: blankTiles.length, providersCount: this.tilesStorageProviders.length });
+    this.logger.debug({
+      msg: 'deleting tiles',
+      count: blankTiles.length,
+      providersCount: this.tilesStorageProviders.length,
+      tiles: blankTiles.map((t) => `${t.z}/${t.x}/${t.y}`),
+    });
     const deleteTimerEnd = this.tilesDurationHistogram?.startTimer({ kind: ProcessKind.DELETE });
     await this.withSpan(
       spanName.TILE_DELETE,
@@ -207,7 +212,16 @@ export class TileProcessor {
         [jobAttributes.TILE_Y]: tile.y,
       },
       async () => {
-        await Promise.all(this.tilesStorageProviders.map(async (tilesStorageProv) => tilesStorageProv.deleteTiles(structuredClone(blankTiles))));
+        await Promise.all(
+          this.tilesStorageProviders.map(async (tilesStorageProv) => {
+            for (const blankTile of blankTiles) {
+              this.logger.debug({ msg: 'deleting subtile', z: blankTile.z, x: blankTile.x, y: blankTile.y });
+              await this.withSpan('tile.delete.single', { 'tile.z': blankTile.z, 'tile.x': blankTile.x, 'tile.y': blankTile.y }, async () => {
+                await tilesStorageProv.deleteTiles([blankTile]);
+              });
+            }
+          })
+        );
       }
     );
     endMetricTimer(deleteTimerEnd);
