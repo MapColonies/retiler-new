@@ -781,5 +781,42 @@ describe('TileProcessor', () => {
       expect(anotherTilesStorageProv.storeTiles).toHaveBeenCalled();
       expect(mockedDetiler.setTileDetails).not.toHaveBeenCalled();
     });
+
+    it('should fail the entire metatile job if 1 subtile fails to store (all-or-nothing semantics)', async () => {
+      const tile = { x: 0, y: 0, z: 0, metatile: 8 };
+      getTileDetails.mockResolvedValue(null);
+      const getMapResponse = Buffer.from('test');
+      getMap.mockResolvedValue(getMapResponse);
+      const splittedTiles = [
+        { z: 0, x: 0, y: 0, metatile: 1, buffer: Buffer.from([]) },
+        { z: 0, x: 1, y: 0, metatile: 1, buffer: Buffer.from([]) },
+        { z: 0, x: 0, y: 1, metatile: 1, buffer: Buffer.from([]) },
+        { z: 0, x: 1, y: 1, metatile: 1, buffer: Buffer.from([]) },
+      ];
+      const splitResultMock: MapSplitResult = {
+        splittedTiles,
+        blankTiles: [],
+        outOfBoundsCount: 0,
+        isMetatileBlank: false,
+      };
+      splitMap.mockResolvedValue(splitResultMock);
+      const storeTileError = new Error('failed to store 3rd subtile');
+      // Succeed on first 2 tiles, fail on the 3rd
+      storeTiles
+        .mockResolvedValueOnce(undefined)
+        .mockResolvedValueOnce(undefined)
+        .mockRejectedValueOnce(storeTileError)
+        .mockResolvedValueOnce(undefined);
+
+      await expect(processor.processTile(tile)).rejects.toThrow(storeTileError);
+
+      // Verify job fails (no setTileDetails call for success)
+      expect(mockedDetiler.getTileDetails).toHaveBeenCalledWith({ kit: 'testKit', x: 0, y: 0, z: 0 });
+      expect(mapProv.getMap).toHaveBeenCalled();
+      expect(mapSplitterProv.splitMap).toHaveBeenCalled();
+      // storeTiles should be called for first 2 tiles successfully, then fail on 3rd
+      expect(tilesStorageProv.storeTiles).toHaveBeenCalledTimes(3);
+      expect(mockedDetiler.setTileDetails).not.toHaveBeenCalled();
+    });
   });
 });
