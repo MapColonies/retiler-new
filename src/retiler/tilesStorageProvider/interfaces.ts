@@ -1,8 +1,8 @@
-import { vectorRetilerV1Type } from '@map-colonies/schemas';
+import { type VectorRetilerSchemaType } from '../../common/config';
 
 export interface TileStoragLayout {
   format: string;
   shouldFlipY: boolean;
 }
 
-export type StorageProviderConfig = vectorRetilerV1Type['app']['tilesStorage']['providers'][number];
+export type StorageProviderConfig = VectorRetilerSchemaType['app']['tilesStorage']['providers'][number];

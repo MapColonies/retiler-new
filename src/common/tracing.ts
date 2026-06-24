@@ -16,6 +16,8 @@ export function tracingFactory(options: TracingOptions): Tracing {
       '@opentelemetry/instrumentation-fs': {
         requireParentSpan: true,
       },
+      '@opentelemetry/instrumentation-dns': { enabled: false },
+      '@opentelemetry/instrumentation-net': { enabled: false },
     },
   });
 

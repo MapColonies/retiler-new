@@ -1,16 +1,21 @@
 import { setInterval as setIntervalPromise } from 'node:timers/promises';
-import pgBoss from 'pg-boss';
+import { PgBoss, type JobWithMetadata } from 'pg-boss';
 import sharp from 'sharp';
 
 const WAIT_FOR_JOB_INTERVAL_MS = 10;
 
 export const LONG_RUNNING_TEST = 10000;
 
-export async function waitForJobToBeResolved(boss: pgBoss, jobId: string): Promise<pgBoss.JobWithMetadata | null> {
+export async function waitForJobToBeResolved<T extends object = object>(
+  boss: PgBoss,
+  queueName: string,
+  jobId: string
+): Promise<JobWithMetadata<T> | null> {
   // eslint-disable-next-line @typescript-eslint/naming-convention, @typescript-eslint/no-unused-vars
   for await (const _unused of setIntervalPromise(WAIT_FOR_JOB_INTERVAL_MS)) {
-    const job = await boss.getJobById(jobId);
-    if (job?.completedon) {
+    const jobs = await boss.findJobs<T>(queueName, { id: jobId });
+    const job = jobs[0];
+    if (job?.completedOn) {
       return job;
     }
   }

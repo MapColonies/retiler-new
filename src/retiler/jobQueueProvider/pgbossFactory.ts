@@ -1,15 +1,16 @@
 import { readFileSync } from 'fs';
-import pgBoss, { DatabaseOptions } from 'pg-boss';
-import { type vectorRetilerV1Type } from '@map-colonies/schemas';
-import { SERVICE_NAME } from '../../common/constants';
+import { PgBoss, type ConstructorOptions } from 'pg-boss';
+import { type HealthCheck } from '@godaddy/terminus';
+import { type VectorRetilerSchemaType } from '../../common/config';
+import { buildApplicationName } from '../../common/constants';
 
-const createDatabaseOptions = (dbConfig: PgBossConfig): DatabaseOptions => {
+export const createDatabaseOptions = (dbConfig: PgBossConfig): ConstructorOptions => {
   const { ssl, ...databaseOptions } = dbConfig;
 
-  const poolConfig: DatabaseOptions = {
+  const poolConfig: ConstructorOptions = {
     ...databaseOptions,
     // eslint-disable-next-line @typescript-eslint/naming-convention
-    application_name: `${SERVICE_NAME}-${dbConfig.projectName ?? 'unknown_env'}-${process.env.NODE_ENV ?? 'unknown_env'}`,
+    application_name: buildApplicationName(dbConfig.projectName),
     user: dbConfig.username,
     password: dbConfig.password,
   };
@@ -20,7 +21,7 @@ const createDatabaseOptions = (dbConfig: PgBossConfig): DatabaseOptions => {
       poolConfig.ssl = {
         key: readFileSync(ssl.key),
         cert: readFileSync(ssl.cert),
-        ca: readFileSync(ssl.ca),
+        ca: ssl.ca ? readFileSync(ssl.ca) : undefined,
       };
     } catch (error) {
       throw new Error(`Failed to load SSL certificates. Ensure the files exist and are accessible. Details: ${(error as Error).message}`);
@@ -32,9 +33,24 @@ const createDatabaseOptions = (dbConfig: PgBossConfig): DatabaseOptions => {
   return poolConfig;
 };
 
-export type PgBossConfig = vectorRetilerV1Type['app']['jobQueue']['pgBoss'] & { projectName?: string };
+export type PgBossConfig = VectorRetilerSchemaType['app']['jobQueue']['pgBoss'] & { projectName?: string };
+export type PgBossFactoryOptions = PgBossConfig & Partial<ConstructorOptions>;
 
-export const pgBossFactory = (bossConfig: PgBossConfig): pgBoss => {
+export const pgBossFactory = (bossConfig: PgBossFactoryOptions): PgBoss => {
   const databaseOptions = createDatabaseOptions(bossConfig);
-  return new pgBoss({ ...bossConfig, ...databaseOptions, noScheduling: true });
+
+  return new PgBoss({ ...bossConfig, ...databaseOptions, supervise: bossConfig.supervisor, schedule: false });
+};
+
+export const getPgBossHealthCheckFunction = (boss: PgBoss, pgbossTimeoutMs: number): HealthCheck => {
+  return async (): Promise<void> => {
+    const check = boss
+      .getDb()
+      .executeSql('SELECT 1')
+      .then(() => undefined);
+    const timeout = new Promise<never>((_, reject) =>
+      setTimeout(() => reject(new Error(`pg-boss health check timed out after ${pgbossTimeoutMs}ms`)), pgbossTimeoutMs)
+    );
+    await Promise.race([check, timeout]);
+  };
 };

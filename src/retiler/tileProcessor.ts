@@ -4,7 +4,9 @@ import { type IDetilerClient } from '@map-colonies/detiler-client';
 import { inject, injectable } from 'tsyringe';
 import { type AxiosInstance } from 'axios';
 import { TILEGRID_WORLD_CRS84, tileToBoundingBox } from '@map-colonies/tile-calc';
+import { type Tracer, type Span, type Attributes, SpanStatusCode } from '@opentelemetry/api';
 import { type ConfigType } from '@src/common/config';
+import { jobAttributes, spanName } from '@src/common/tracing/job';
 import { IProjectConfig } from '../common/interfaces';
 import { fetchTimestampValue, timestampToUnix } from '../common/util';
 import {
@@ -31,7 +33,6 @@ export class TileProcessor {
   private readonly forceProcess: boolean;
   private readonly shouldFilterBlankTiles: boolean;
   private readonly detilerProceedOnFailure: boolean;
-
   private readonly tilesCounter?: Counter<'status' | 'z'>;
   private readonly subTilesCounter?: Counter<'status' | 'z'>;
   private readonly preProcessResultsCounter?: Counter<'result' | 'z'>;
@@ -39,6 +40,7 @@ export class TileProcessor {
 
   public constructor(
     @inject(SERVICES.LOGGER) private readonly logger: Logger,
+    @inject(SERVICES.TRACER) private readonly tracer: Tracer,
     @inject(MAP_PROVIDER) private readonly mapProvider: MapProvider,
     @inject(MAP_SPLITTER_PROVIDER) private readonly mapSplitter: MapSplitterProvider,
     @inject(TILES_STORAGE_PROVIDERS) private readonly tilesStorageProviders: TilesStorageProvider[],
@@ -48,10 +50,10 @@ export class TileProcessor {
     @inject(METRICS_REGISTRY) registry?: Registry,
     @inject(METRICS_BUCKETS) metricsBuckets?: number[]
   ) {
-    this.project = this.config.get('app.project');
-    this.forceProcess = this.config.get('app.forceProcess');
-    this.shouldFilterBlankTiles = this.config.get('app.tilesStorage.shouldFilterBlankTiles');
-    this.detilerProceedOnFailure = this.config.get('detiler.proceedOnFailure');
+    this.project = config.get('app.project');
+    this.forceProcess = config.get('app.forceProcess');
+    this.shouldFilterBlankTiles = config.get('app.tilesStorage.shouldFilterBlankTiles');
+    this.detilerProceedOnFailure = config.get('detiler.proceedOnFailure');
 
     if (registry !== undefined) {
       this.tilesDurationHistogram = new Histogram({
@@ -86,61 +88,163 @@ export class TileProcessor {
   }
 
   public async processTile(tile: TileWithMetadata): Promise<void> {
-    try {
-      // set the tile's updatedAt timestamp to be just before getMap call
-      const preRenderTimestamp = Math.floor(Date.now() / MILLISECONDS_IN_SECOND);
+    return this.withSpan(
+      spanName.TILE_PROCESS,
+      {
+        [jobAttributes.TILE_Z]: tile.z,
+        [jobAttributes.TILE_X]: tile.x,
+        [jobAttributes.TILE_Y]: tile.y,
+        [jobAttributes.TILE_METATILE]: tile.metatile,
+        [jobAttributes.TILE_FORCE]: tile.force ?? false,
+        [jobAttributes.TILE_STATE]: tile.state,
+        [jobAttributes.MAP_PROVIDER]: this.config.get('app.map.provider'),
+      },
+      async (span) => {
+        try {
+          const preRenderTimestamp = Math.floor(Date.now() / MILLISECONDS_IN_SECOND);
 
-      // check if possibly the tile processing can be skipped according to detiler
-      const { shouldSkipProcessing } = await this.preProcess(tile, preRenderTimestamp);
+          const { shouldSkipProcessing, reason } = await this.runPreProcess(tile, preRenderTimestamp);
+          if (shouldSkipProcessing) {
+            span.setAttribute(jobAttributes.TILE_STATUS, MetatileStatus.SKIPPED);
+            span.setAttribute(jobAttributes.TILE_SKIP_REASON, reason ?? '');
+            this.tilesCounter?.inc({ status: MetatileStatus.SKIPPED, z: tile.z });
+            return;
+          }
 
-      if (shouldSkipProcessing) {
-        this.tilesCounter?.inc({ status: MetatileStatus.SKIPPED, z: tile.z });
-        return;
+          const mapBuffer = await this.fetchMap(tile);
+          const { splittedTiles, isMetatileBlank, blankTiles, outOfBoundsCount } = await this.splitMap(tile, mapBuffer);
+
+          if (splittedTiles.length > 0) {
+            await this.storeSplittedTiles(splittedTiles);
+          }
+
+          if (blankTiles.length > 0) {
+            await this.deleteBlankTiles(tile, blankTiles);
+          }
+
+          await this.runPostProcess(tile, preRenderTimestamp);
+
+          this.tilesCounter?.inc({ status: MetatileStatus.COMPLETED, z: tile.z });
+          if (isMetatileBlank) {
+            this.tilesCounter?.inc({ status: MetatileStatus.BLANK, z: tile.z });
+          }
+          this.subTilesCounter?.inc({ status: SubTileStatus.STORED, z: tile.z }, splittedTiles.length);
+          this.subTilesCounter?.inc({ status: SubTileStatus.BLANK, z: tile.z }, blankTiles.length);
+          this.subTilesCounter?.inc({ status: SubTileStatus.OUT_OF_BOUNDS, z: tile.z }, outOfBoundsCount);
+        } catch (error) {
+          this.tilesCounter?.inc({ status: MetatileStatus.FAILED, z: tile.z });
+          throw error;
+        }
       }
+    );
+  }
 
-      const fetchTimerEnd = this.tilesDurationHistogram?.startTimer({ kind: ProcessKind.FETCH, z: tile.z });
-      const mapBuffer = await this.mapProvider.getMap(tile);
-      endMetricTimer(fetchTimerEnd);
+  private async runPreProcess(tile: TileWithMetadata, preRenderTimestamp: number): Promise<PreProcessReult> {
+    return this.withSpan(spanName.TILE_PREPROCESS, {}, async (innerSpan) => {
+      const result = await this.preProcess(tile, preRenderTimestamp);
+      innerSpan.setAttribute(jobAttributes.TILE_SKIP_REASON, result.reason ?? '');
+      return result;
+    });
+  }
 
-      const splitTimerEnd = this.tilesDurationHistogram?.startTimer({ kind: ProcessKind.SPLIT });
-      const { splittedTiles, isMetatileBlank, blankTiles, outOfBoundsCount } = await this.mapSplitter.splitMap(
-        { ...tile, buffer: mapBuffer },
-        this.shouldFilterBlankTiles
+  private async fetchMap(tile: TileWithMetadata): Promise<Buffer> {
+    const fetchTimerEnd = this.tilesDurationHistogram?.startTimer({ kind: ProcessKind.FETCH, z: tile.z });
+    const mapBuffer = await this.withSpan(spanName.TILE_FETCH, {}, async () => this.mapProvider.getMap(tile));
+    endMetricTimer(fetchTimerEnd);
+    return mapBuffer;
+  }
+
+  private async splitMap(tile: TileWithMetadata, mapBuffer: Buffer): Promise<Awaited<ReturnType<MapSplitterProvider['splitMap']>>> {
+    const splitTimerEnd = this.tilesDurationHistogram?.startTimer({ kind: ProcessKind.SPLIT });
+    const result = await this.withSpan(spanName.TILE_SPLIT, {}, async (innerSpan) => {
+      const splitResult = await this.mapSplitter.splitMap({ ...tile, buffer: mapBuffer }, this.shouldFilterBlankTiles);
+      innerSpan.setAttributes({
+        [jobAttributes.TILES_STORED_COUNT]: splitResult.splittedTiles.length,
+        [jobAttributes.TILES_BLANK_COUNT]: splitResult.blankTiles.length,
+        [jobAttributes.TILES_OUT_OF_BOUNDS_COUNT]: splitResult.outOfBoundsCount,
+      });
+      return splitResult;
+    });
+    endMetricTimer(splitTimerEnd);
+    return result;
+  }
+
+  private async storeSplittedTiles(splittedTiles: Awaited<ReturnType<MapSplitterProvider['splitMap']>>['splittedTiles']): Promise<void> {
+    this.logger.debug({
+      msg: 'storing tiles',
+      count: splittedTiles.length,
+      providersCount: this.tilesStorageProviders.length,
+      tiles: splittedTiles.map((t) => `${t.z}/${t.x}/${t.y}`),
+    });
+    const storeTimerEnd = this.tilesDurationHistogram?.startTimer({ kind: ProcessKind.STORE });
+    await this.withSpan(spanName.TILE_STORE, { [jobAttributes.TILES_STORED_COUNT]: splittedTiles.length }, async () => {
+      await Promise.all(
+        this.tilesStorageProviders.map(async (tilesStorageProv) => {
+          for (const subTile of splittedTiles) {
+            this.logger.debug({ msg: 'storing subtile', z: subTile.z, x: subTile.x, y: subTile.y });
+            await this.withSpan('tile.store.single', { 'tile.z': subTile.z, 'tile.x': subTile.x, 'tile.y': subTile.y }, async () => {
+              await tilesStorageProv.storeTiles([structuredClone(subTile)]);
+            });
+          }
+        })
       );
-      endMetricTimer(splitTimerEnd);
+    });
+    endMetricTimer(storeTimerEnd);
+  }
 
-      if (splittedTiles.length > 0) {
-        this.logger.debug({ msg: 'storing tiles', count: splittedTiles.length, providersCount: this.tilesStorageProviders.length });
-
-        const storeTimerEnd = this.tilesDurationHistogram?.startTimer({ kind: ProcessKind.STORE });
-        await Promise.all(this.tilesStorageProviders.map(async (tilesStorageProv) => tilesStorageProv.storeTiles(structuredClone(splittedTiles))));
-        endMetricTimer(storeTimerEnd);
+  private async deleteBlankTiles(
+    tile: TileWithMetadata,
+    blankTiles: Awaited<ReturnType<MapSplitterProvider['splitMap']>>['blankTiles']
+  ): Promise<void> {
+    this.logger.debug({
+      msg: 'deleting tiles',
+      count: blankTiles.length,
+      providersCount: this.tilesStorageProviders.length,
+      tiles: blankTiles.map((t) => `${t.z}/${t.x}/${t.y}`),
+    });
+    const deleteTimerEnd = this.tilesDurationHistogram?.startTimer({ kind: ProcessKind.DELETE });
+    await this.withSpan(
+      spanName.TILE_DELETE,
+      {
+        [jobAttributes.TILES_BLANK_COUNT]: blankTiles.length,
+        [jobAttributes.TILE_Z]: tile.z,
+        [jobAttributes.TILE_X]: tile.x,
+        [jobAttributes.TILE_Y]: tile.y,
+      },
+      async () => {
+        await Promise.all(
+          this.tilesStorageProviders.map(async (tilesStorageProv) => {
+            for (const blankTile of blankTiles) {
+              this.logger.debug({ msg: 'deleting subtile', z: blankTile.z, x: blankTile.x, y: blankTile.y });
+              await this.withSpan('tile.delete.single', { 'tile.z': blankTile.z, 'tile.x': blankTile.x, 'tile.y': blankTile.y }, async () => {
+                await tilesStorageProv.deleteTiles([blankTile]);
+              });
+            }
+          })
+        );
       }
+    );
+    endMetricTimer(deleteTimerEnd);
+  }
 
-      if (blankTiles.length > 0) {
-        this.logger.debug({ msg: 'deleting tiles', count: blankTiles.length, providersCount: this.tilesStorageProviders.length });
+  private async runPostProcess(tile: TileWithMetadata, preRenderTimestamp: number): Promise<void> {
+    await this.withSpan(spanName.TILE_POSTPROCESS, {}, async () => this.postProcess(tile, preRenderTimestamp));
+  }
 
-        const deleteTimerEnd = this.tilesDurationHistogram?.startTimer({ kind: ProcessKind.DELETE });
-        await Promise.all(this.tilesStorageProviders.map(async (tilesStorageProv) => tilesStorageProv.deleteTiles(structuredClone(blankTiles))));
-        endMetricTimer(deleteTimerEnd);
+  private async withSpan<T>(name: string, attributes: Attributes, fn: (span: Span) => Promise<T>): Promise<T> {
+    return this.tracer.startActiveSpan(name, { attributes }, async (span) => {
+      try {
+        const result = await fn(span);
+        span.setStatus({ code: SpanStatusCode.OK });
+        return result;
+      } catch (error) {
+        span.setStatus({ code: SpanStatusCode.ERROR });
+        if (error instanceof Error) span.recordException(error);
+        throw error;
+      } finally {
+        span.end();
       }
-
-      // update the tile's details according to the current processing
-      await this.postProcess(tile, preRenderTimestamp);
-
-      this.tilesCounter?.inc({ status: MetatileStatus.COMPLETED, z: tile.z });
-
-      if (isMetatileBlank) {
-        this.tilesCounter?.inc({ status: MetatileStatus.BLANK, z: tile.z });
-      }
-
-      this.subTilesCounter?.inc({ status: SubTileStatus.STORED, z: tile.z }, splittedTiles.length);
-      this.subTilesCounter?.inc({ status: SubTileStatus.BLANK, z: tile.z }, blankTiles.length);
-      this.subTilesCounter?.inc({ status: SubTileStatus.OUT_OF_BOUNDS, z: tile.z }, outOfBoundsCount);
-    } catch (error) {
-      this.tilesCounter?.inc({ status: MetatileStatus.FAILED, z: tile.z });
-      throw error;
-    }
+    });
   }
 
   private async preProcess(tile: TileWithMetadata, timestamp: number): Promise<PreProcessReult> {

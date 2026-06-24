@@ -4,8 +4,18 @@ const { compilerOptions } = require('../../../tsconfig.json');
 /** @type {import('jest').Config} */
 module.exports = {
   transform: {
-    '^.+\\.ts$': ['@swc/jest'],
+    '^.+\\.[tj]s$': [
+      '@swc/jest',
+      {
+        jsc: {
+          parser: { syntax: 'typescript', tsx: false, decorators: true },
+          target: 'es2020',
+        },
+        module: { type: 'commonjs' },
+      },
+    ],
   },
+  transformIgnorePatterns: ['node_modules/(?!pg-boss|serialize-error|non-error)'],
   moduleNameMapper: pathsToModuleNameMapper(compilerOptions.paths, { prefix: '<rootDir>/' }),
   testMatch: ['<rootDir>/tests/unit/**/*.spec.ts'],
   coverageReporters: ['text', 'html'],

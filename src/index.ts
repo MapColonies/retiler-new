@@ -7,8 +7,8 @@ import { Logger } from '@map-colonies/js-logger';
 import { DependencyContainer } from 'tsyringe';
 import { CleanupRegistry } from '@map-colonies/cleanup-registry';
 import { collectMetricsExpressMiddleware } from '@map-colonies/telemetry/prom-metrics';
-import { createTerminus } from '@godaddy/terminus';
-import { CONSUME_AND_PROCESS_FACTORY, ExitCodes, METRICS_REGISTRY, ON_SIGNAL, SERVICES, stubHealthcheck } from './common/constants';
+import { createTerminus, HealthCheck } from '@godaddy/terminus';
+import { CONSUME_AND_PROCESS_FACTORY, ExitCodes, HEALTHCHECK, METRICS_REGISTRY, ON_SIGNAL, SERVICES } from './common/constants';
 import { registerExternalValues } from './containerConfig';
 import { ConfigType } from './common/config';
 
@@ -21,6 +21,7 @@ void registerExternalValues()
     const config = container.resolve<ConfigType>(SERVICES.CONFIG);
     const cleanupRegistry = container.resolve<CleanupRegistry>(SERVICES.CLEANUP_REGISTRY);
     const registry = container.resolve<Registry>(METRICS_REGISTRY);
+    const healthCheck = container.resolve<HealthCheck>(HEALTHCHECK);
 
     const app = express();
 
@@ -34,7 +35,7 @@ void registerExternalValues()
       })
     );
 
-    const server = createTerminus(createServer(app), { healthChecks: { '/liveness': stubHealthcheck }, onSignal: container.resolve(ON_SIGNAL) });
+    const server = createTerminus(createServer(app), { healthChecks: { '/liveness': healthCheck }, onSignal: container.resolve(ON_SIGNAL) });
 
     cleanupRegistry.register({
       func: async () => {
@@ -47,8 +48,9 @@ void registerExternalValues()
 
     const port = config.get('server.port');
 
+    const logger = container.resolve<Logger>(SERVICES.LOGGER);
+
     server.listen(port, () => {
-      const logger = container.resolve<Logger>(SERVICES.LOGGER);
       logger.debug(`liveness on port ${port}`);
     });
 

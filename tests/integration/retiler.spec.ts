@@ -5,15 +5,17 @@ import { Registry } from 'prom-client';
 import jsLogger from '@map-colonies/js-logger';
 import { trace } from '@opentelemetry/api';
 import { DependencyContainer } from 'tsyringe';
-import PgBoss from 'pg-boss';
-import nock, { Interceptor, Scope, removeInterceptor } from 'nock';
+import { PgBoss } from 'pg-boss';
+import nock, { Interceptor, Scope } from 'nock';
 import { Tile } from '@map-colonies/tile-calc';
 import format from 'string-format';
 import httpStatusCodes from 'http-status-codes';
 import { CleanupRegistry } from '@map-colonies/cleanup-registry';
+import sharp from 'sharp';
 import { ConfigType, getConfig, initConfig } from '@src/common/config';
 import { registerExternalValues } from '../../src/containerConfig';
 import { consumeAndProcessFactory } from '../../src/app';
+
 import {
   JOB_QUEUE_PROVIDER,
   MAP_URL,
@@ -30,19 +32,27 @@ import { TileStoragLayout } from '../../src/retiler/tilesStorageProvider/interfa
 import { FS_FILE_NOT_FOUND_ERROR_CODE } from '../../src/retiler/tilesStorageProvider/constants';
 import { createBlankBuffer, LONG_RUNNING_TEST, waitForJobToBeResolved } from './helpers';
 
-const s3SendMock = jest.fn();
+const expectPixelsEqual = async (actual: Buffer, expected: Buffer): Promise<void> => {
+  const actualPixels = await sharp(actual).raw().toBuffer();
+  const expectedPixels = await sharp(expected).raw().toBuffer();
+  expect(actualPixels.equals(expectedPixels)).toBe(true);
+};
 
-// eslint-disable-next-line @typescript-eslint/no-unsafe-return
+const s3SendMock = jest.fn<Promise<unknown>, []>();
+
+const cleanupQueue = async (pgBoss: PgBoss, queueName: string): Promise<void> => {
+  await pgBoss.start();
+  await pgBoss.deleteAllJobs(queueName);
+  await pgBoss.stop({ graceful: false });
+};
+
 jest.mock('fs/promises', () => ({
-  ...jest.requireActual('fs/promises'),
+  ...jest.requireActual<Record<string, unknown>>('fs/promises'),
   writeFile: jest.fn(),
   unlink: jest.fn(),
 }));
 
-// eslint-disable-next-line @typescript-eslint/no-unsafe-return
 jest.mock('@aws-sdk/client-s3', () => ({
-  ...jest.requireActual('@aws-sdk/client-s3'),
-
   S3Client: jest.fn().mockImplementation(() => ({
     send: s3SendMock,
     destroy: jest.fn(),
@@ -54,6 +64,10 @@ jest.mock('@aws-sdk/client-s3', () => ({
       endpointProvider: jest.fn().mockReturnValue('test-endpoint'),
     },
   })),
+  // eslint-disable-next-line @typescript-eslint/no-unsafe-return
+  PutObjectCommand: jest.fn().mockImplementation((input: unknown) => input),
+  // eslint-disable-next-line @typescript-eslint/no-unsafe-return
+  DeleteObjectsCommand: jest.fn().mockImplementation((input: unknown) => input),
 }));
 
 describe('retiler', function () {
@@ -78,25 +92,26 @@ describe('retiler', function () {
     mapUrl = config.get('app.map.url');
     detilerUrl = config.get('detiler.client.url') as string;
     stateUrl = config.get('app.project.stateUrl');
+    stateBuffer = await fsPromises.readFile('tests/state.txt');
+    mapBuffer512x512 = await fsPromises.readFile('tests/512x512.png');
+    mapBuffer2048x2048 = await fsPromises.readFile('tests/2048x2048.png');
+  });
 
+  beforeEach(() => {
     getMapInterceptor = nock(mapUrl).defaultReplyHeaders({ 'content-type': 'image/png' }).get(/.*/);
     stateInterceptor = nock(stateUrl).get(/.*/);
     detilerScope = nock(detilerUrl);
     detilerGetInterceptor = detilerScope.get(/^\/detail/);
     cooldownsGetInterceptor = detilerScope.get(/^\/cooldown/);
     detilerPutInterceptor = detilerScope.put(/.*/);
-    stateBuffer = await fsPromises.readFile('tests/state.txt');
-    mapBuffer512x512 = await fsPromises.readFile('tests/512x512.png');
-    mapBuffer2048x2048 = await fsPromises.readFile('tests/2048x2048.png');
   });
 
   afterEach(function () {
-    removeInterceptor(getMapInterceptor);
-    removeInterceptor(stateInterceptor);
-    removeInterceptor(detilerGetInterceptor);
-    removeInterceptor(cooldownsGetInterceptor);
-    removeInterceptor(detilerPutInterceptor);
+    nock.cleanAll();
     jest.clearAllMocks();
+    s3SendMock.mockResolvedValue({});
+    (fsPromises.writeFile as unknown as jest.Mock).mockResolvedValue(undefined);
+    (fsPromises.unlink as unknown as jest.Mock).mockResolvedValue(undefined);
   });
 
   describe('arcgis', function () {
@@ -141,7 +156,8 @@ describe('retiler', function () {
 
     afterEach(async () => {
       const pgBoss = container.resolve<PgBoss>(SERVICES.PGBOSS);
-      await pgBoss.clearStorage();
+      const queueName = container.resolve<string>(QUEUE_NAME);
+      await cleanupQueue(pgBoss, queueName);
     });
 
     afterAll(async () => {
@@ -168,7 +184,7 @@ describe('retiler', function () {
           const storageProviders = container.resolve<TilesStorageProvider[]>(TILES_STORAGE_PROVIDERS);
           const storeTileSpies = storageProviders.map((provider) => jest.spyOn(provider, 'storeTile'));
 
-          const job = await waitForJobToBeResolved(pgBoss, jobId as string);
+          const job = await waitForJobToBeResolved(pgBoss, queueName, jobId as string);
           await provider.stopQueue();
 
           await expect(consumePromise).resolves.not.toThrow();
@@ -182,7 +198,7 @@ describe('retiler', function () {
               const storeCall = storeTileSpy.mock.calls[i]![0];
               const key = determineKey({ x: storeCall.x, y: storeCall.y, z: storeCall.z, metatile: storeCall.metatile });
               const expectedBuffer = await fsPromises.readFile(`tests/integration/expected/${key}`);
-              expect(expectedBuffer.compare(storeCall.buffer)).toBe(0);
+              await expectPixelsEqual(storeCall.buffer, expectedBuffer);
             }
           }
 
@@ -209,7 +225,7 @@ describe('retiler', function () {
           const storageProviders = container.resolve<TilesStorageProvider[]>(TILES_STORAGE_PROVIDERS);
           const storeTileSpies = storageProviders.map((provider) => jest.spyOn(provider, 'storeTile'));
 
-          const job = await waitForJobToBeResolved(pgBoss, jobId as string);
+          const job = await waitForJobToBeResolved(pgBoss, queueName, jobId as string);
           await provider.stopQueue();
 
           await expect(consumePromise).resolves.not.toThrow();
@@ -224,7 +240,7 @@ describe('retiler', function () {
               const storeCall = storeTileSpy.mock.calls[i]![0];
               const key = determineKey({ x: storeCall.x, y: storeCall.y, z: storeCall.z, metatile: storeCall.metatile });
               const expectedBuffer = await fsPromises.readFile(`tests/integration/expected/${key}`);
-              expect(expectedBuffer.compare(storeCall.buffer)).toBe(0);
+              await expectPixelsEqual(storeCall.buffer, expectedBuffer);
             }
           }
 
@@ -251,7 +267,7 @@ describe('retiler', function () {
           const storageProviders = container.resolve<TilesStorageProvider[]>(TILES_STORAGE_PROVIDERS);
           const storeTileSpies = storageProviders.map((provider) => jest.spyOn(provider, 'storeTile'));
 
-          const job = await waitForJobToBeResolved(pgBoss, jobId as string);
+          const job = await waitForJobToBeResolved(pgBoss, queueName, jobId as string);
           await provider.stopQueue();
 
           await expect(consumePromise).resolves.not.toThrow();
@@ -284,7 +300,7 @@ describe('retiler', function () {
           const storageProviders = container.resolve<TilesStorageProvider[]>(TILES_STORAGE_PROVIDERS);
           const storeTileSpies = storageProviders.map((provider) => jest.spyOn(provider, 'storeTile'));
 
-          const job = await waitForJobToBeResolved(pgBoss, jobId as string);
+          const job = await waitForJobToBeResolved(pgBoss, queueName, jobId as string);
           await provider.stopQueue();
 
           await expect(consumePromise).resolves.not.toThrow();
@@ -298,7 +314,7 @@ describe('retiler', function () {
               const storeCall = storeTileSpy.mock.calls[i]![0];
               const key = determineKey({ x: storeCall.x, y: storeCall.y, z: storeCall.z, metatile: storeCall.metatile });
               const expectedBuffer = await fsPromises.readFile(`tests/integration/expected/${key}`);
-              expect(expectedBuffer.compare(storeCall.buffer)).toBe(0);
+              await expectPixelsEqual(storeCall.buffer, expectedBuffer);
             }
           }
 
@@ -328,7 +344,7 @@ describe('retiler', function () {
           const storageProviders = container.resolve<TilesStorageProvider[]>(TILES_STORAGE_PROVIDERS);
           const storeTileSpies = storageProviders.map((provider) => jest.spyOn(provider, 'storeTile'));
 
-          const job = await waitForJobToBeResolved(pgBoss, jobId as string);
+          const job = await waitForJobToBeResolved(pgBoss, queueName, jobId as string);
           await provider.stopQueue();
 
           await expect(consumePromise).resolves.not.toThrow();
@@ -342,7 +358,7 @@ describe('retiler', function () {
               const storeCall = storeTileSpy.mock.calls[i]![0];
               const key = determineKey({ x: storeCall.x, y: storeCall.y, z: storeCall.z, metatile: storeCall.metatile });
               const expectedBuffer = await fsPromises.readFile(`tests/integration/expected/${key}`);
-              expect(expectedBuffer.compare(storeCall.buffer)).toBe(0);
+              await expectPixelsEqual(storeCall.buffer, expectedBuffer);
             }
           }
 
@@ -371,7 +387,7 @@ describe('retiler', function () {
           const storageProviders = container.resolve<TilesStorageProvider[]>(TILES_STORAGE_PROVIDERS);
           const storeTileSpies = storageProviders.map((provider) => jest.spyOn(provider, 'storeTile'));
 
-          const job = await waitForJobToBeResolved(pgBoss, jobId as string);
+          const job = await waitForJobToBeResolved(pgBoss, queueName, jobId as string);
           await provider.stopQueue();
 
           await expect(consumePromise).resolves.not.toThrow();
@@ -402,7 +418,7 @@ describe('retiler', function () {
           const storageProviders = container.resolve<TilesStorageProvider[]>(TILES_STORAGE_PROVIDERS);
           const storeTileSpies = storageProviders.map((provider) => jest.spyOn(provider, 'storeTile'));
 
-          const job = await waitForJobToBeResolved(pgBoss, jobId as string);
+          const job = await waitForJobToBeResolved(pgBoss, queueName, jobId as string);
           await provider.stopQueue();
 
           await expect(consumePromise).resolves.not.toThrow();
@@ -417,7 +433,7 @@ describe('retiler', function () {
               const storeCall = storeTileSpy.mock.calls[i]![0];
               const key = determineKey({ x: storeCall.x, y: storeCall.y, z: storeCall.z, metatile: storeCall.metatile });
               const expectedBuffer = await fsPromises.readFile(`tests/integration/expected/${key}`);
-              expect(expectedBuffer.compare(storeCall.buffer)).toBe(0);
+              await expectPixelsEqual(storeCall.buffer, expectedBuffer);
             }
           }
 
@@ -452,9 +468,9 @@ describe('retiler', function () {
           const consumePromise = consumeAndProcessFactory(container)();
 
           const [job1, job2, job3] = await Promise.all([
-            waitForJobToBeResolved(pgBoss, jobId1 as string),
-            waitForJobToBeResolved(pgBoss, jobId2 as string),
-            waitForJobToBeResolved(pgBoss, jobId3 as string),
+            waitForJobToBeResolved(pgBoss, queueName, jobId1 as string),
+            waitForJobToBeResolved(pgBoss, queueName, jobId2 as string),
+            waitForJobToBeResolved(pgBoss, queueName, jobId3 as string),
           ]);
 
           await provider.stopQueue();
@@ -497,9 +513,9 @@ describe('retiler', function () {
           const consumePromise = consumeAndProcessFactory(container)();
 
           const [job1, job2, job3] = await Promise.all([
-            waitForJobToBeResolved(pgBoss, jobId1 as string),
-            waitForJobToBeResolved(pgBoss, jobId2 as string),
-            waitForJobToBeResolved(pgBoss, jobId3 as string),
+            waitForJobToBeResolved(pgBoss, queueName, jobId1 as string),
+            waitForJobToBeResolved(pgBoss, queueName, jobId2 as string),
+            waitForJobToBeResolved(pgBoss, queueName, jobId3 as string),
           ]);
 
           await provider.stopQueue();
@@ -543,9 +559,9 @@ describe('retiler', function () {
           const consumePromise = consumeAndProcessFactory(container)();
 
           const [job1, job2, job3] = await Promise.all([
-            waitForJobToBeResolved(pgBoss, jobId1 as string),
-            waitForJobToBeResolved(pgBoss, jobId2 as string),
-            waitForJobToBeResolved(pgBoss, jobId3 as string),
+            waitForJobToBeResolved(pgBoss, queueName, jobId1 as string),
+            waitForJobToBeResolved(pgBoss, queueName, jobId2 as string),
+            waitForJobToBeResolved(pgBoss, queueName, jobId3 as string),
           ]);
 
           await provider.stopQueue();
@@ -577,7 +593,7 @@ describe('retiler', function () {
 
           const consumePromise = consumeAndProcessFactory(container)();
 
-          const job = await waitForJobToBeResolved(pgBoss, jobId as string);
+          const job = await waitForJobToBeResolved(pgBoss, queueName, jobId as string);
 
           await provider.stopQueue();
 
@@ -606,7 +622,7 @@ describe('retiler', function () {
 
           const consumePromise = consumeAndProcessFactory(container)();
 
-          const job = await waitForJobToBeResolved(pgBoss, jobId as string);
+          const job = await waitForJobToBeResolved(pgBoss, queueName, jobId as string);
 
           await provider.stopQueue();
 
@@ -635,7 +651,7 @@ describe('retiler', function () {
 
           const consumePromise = consumeAndProcessFactory(container)();
 
-          const job = await waitForJobToBeResolved(pgBoss, jobId as string);
+          const job = await waitForJobToBeResolved(pgBoss, queueName, jobId as string);
 
           await provider.stopQueue();
 
@@ -663,7 +679,7 @@ describe('retiler', function () {
 
           const consumePromise = consumeAndProcessFactory(container)();
 
-          const job = await waitForJobToBeResolved(pgBoss, jobId as string);
+          const job = await waitForJobToBeResolved(pgBoss, queueName, jobId as string);
 
           await provider.stopQueue();
 
@@ -690,7 +706,7 @@ describe('retiler', function () {
 
           const consumePromise = consumeAndProcessFactory(container)();
 
-          const job = await waitForJobToBeResolved(pgBoss, jobId as string);
+          const job = await waitForJobToBeResolved(pgBoss, queueName, jobId as string);
 
           await provider.stopQueue();
 
@@ -718,7 +734,7 @@ describe('retiler', function () {
 
           const consumePromise = consumeAndProcessFactory(container)();
 
-          const job = await waitForJobToBeResolved(pgBoss, jobId as string);
+          const job = await waitForJobToBeResolved(pgBoss, queueName, jobId as string);
 
           await provider.stopQueue();
 
@@ -751,7 +767,7 @@ describe('retiler', function () {
           const storageProviders = container.resolve<TilesStorageProvider[]>(TILES_STORAGE_PROVIDERS);
           jest.spyOn(storageProviders[0]!, 'storeTile').mockRejectedValue(error);
 
-          const job = await waitForJobToBeResolved(pgBoss, jobId as string);
+          const job = await waitForJobToBeResolved(pgBoss, queueName, jobId as string);
 
           await provider.stopQueue();
 
@@ -773,7 +789,7 @@ describe('retiler', function () {
           const getMapScope = getMapInterceptor.reply(httpStatusCodes.OK, mapBuffer2048x2048);
           const errorMessage = 'send error';
           const error = new Error(errorMessage);
-          s3SendMock.mockRejectedValueOnce(error);
+          s3SendMock.mockRejectedValue(error);
 
           const pgBoss = container.resolve<PgBoss>(SERVICES.PGBOSS);
           const provider = container.resolve<PgBossJobQueueProvider>(JOB_QUEUE_PROVIDER);
@@ -782,7 +798,7 @@ describe('retiler', function () {
 
           const consumePromise = consumeAndProcessFactory(container)();
 
-          const job = await waitForJobToBeResolved(pgBoss, jobId as string);
+          const job = await waitForJobToBeResolved(pgBoss, queueName, jobId as string);
 
           await provider.stopQueue();
 
@@ -805,7 +821,7 @@ describe('retiler', function () {
           const getMapScope = getMapInterceptor.reply(httpStatusCodes.OK, mapBuffer2048x2048);
           const errorMessage = 'write error';
           const error = new Error(errorMessage);
-          (fsPromises.writeFile as jest.Mock).mockRejectedValueOnce(error);
+          (fsPromises.writeFile as unknown as jest.Mock).mockRejectedValue(error);
 
           const pgBoss = container.resolve<PgBoss>(SERVICES.PGBOSS);
           const provider = container.resolve<PgBossJobQueueProvider>(JOB_QUEUE_PROVIDER);
@@ -814,7 +830,7 @@ describe('retiler', function () {
 
           const consumePromise = consumeAndProcessFactory(container)();
 
-          const job = await waitForJobToBeResolved(pgBoss, jobId as string);
+          const job = await waitForJobToBeResolved(pgBoss, queueName, jobId as string);
 
           await provider.stopQueue();
 
@@ -888,7 +904,8 @@ describe('retiler', function () {
 
     afterEach(async () => {
       const pgBoss = container.resolve<PgBoss>(SERVICES.PGBOSS);
-      await pgBoss.clearStorage();
+      const queueName = container.resolve<string>(QUEUE_NAME);
+      await cleanupQueue(pgBoss, queueName);
     });
 
     afterAll(async () => {
@@ -915,7 +932,7 @@ describe('retiler', function () {
           const storageProviders = container.resolve<TilesStorageProvider[]>(TILES_STORAGE_PROVIDERS);
           const storeTileSpies = storageProviders.map((provider) => jest.spyOn(provider, 'storeTile'));
 
-          const job = await waitForJobToBeResolved(pgBoss, jobId as string);
+          const job = await waitForJobToBeResolved(pgBoss, queueName, jobId as string);
 
           await provider.stopQueue();
 
@@ -930,7 +947,7 @@ describe('retiler', function () {
               const storeCall = storeTileSpy.mock.calls[i]![0];
               const key = determineKey({ x: storeCall.x, y: storeCall.y, z: storeCall.z, metatile: storeCall.metatile });
               const expectedBuffer = await fsPromises.readFile(`tests/integration/expected/${key}`);
-              expect(expectedBuffer.compare(storeCall.buffer)).toBe(0);
+              await expectPixelsEqual(storeCall.buffer, expectedBuffer);
             }
           }
 
@@ -955,7 +972,7 @@ describe('retiler', function () {
 
           const consumePromise = consumeAndProcessFactory(container)();
 
-          const job = await waitForJobToBeResolved(pgBoss, jobId as string);
+          const job = await waitForJobToBeResolved(pgBoss, queueName, jobId as string);
 
           await provider.stopQueue();
 
@@ -984,7 +1001,7 @@ describe('retiler', function () {
 
           const consumePromise = consumeAndProcessFactory(container)();
 
-          const job = await waitForJobToBeResolved(pgBoss, jobId as string);
+          const job = await waitForJobToBeResolved(pgBoss, queueName, jobId as string);
 
           await provider.stopQueue();
 
@@ -1043,7 +1060,8 @@ describe('retiler', function () {
 
     afterEach(async () => {
       const pgBoss = container.resolve<PgBoss>(SERVICES.PGBOSS);
-      await pgBoss.clearStorage();
+      const queueName = container.resolve<string>(QUEUE_NAME);
+      await cleanupQueue(pgBoss, queueName);
     });
 
     afterAll(async () => {
@@ -1068,7 +1086,7 @@ describe('retiler', function () {
           const storageProviders = container.resolve<TilesStorageProvider[]>(TILES_STORAGE_PROVIDERS);
           const storeTileSpies = storageProviders.map((provider) => jest.spyOn(provider, 'storeTile'));
 
-          const job = await waitForJobToBeResolved(pgBoss, jobId as string);
+          const job = await waitForJobToBeResolved(pgBoss, queueName, jobId as string);
           await provider.stopQueue();
 
           await expect(consumePromise).resolves.not.toThrow();
@@ -1082,7 +1100,7 @@ describe('retiler', function () {
               const storeCall = storeTileSpy.mock.calls[i]![0];
               const key = determineKey({ x: storeCall.x, y: storeCall.y, z: storeCall.z, metatile: storeCall.metatile });
               const expectedBuffer = await fsPromises.readFile(`tests/integration/expected/${key}`);
-              expect(expectedBuffer.compare(storeCall.buffer)).toBe(0);
+              await expectPixelsEqual(storeCall.buffer, expectedBuffer);
             }
           }
 
@@ -1097,13 +1115,13 @@ describe('retiler', function () {
         const pgBoss = container.resolve<PgBoss>(SERVICES.PGBOSS);
         const provider = container.resolve<PgBossJobQueueProvider>(JOB_QUEUE_PROVIDER);
         const queueName = container.resolve<string>(QUEUE_NAME);
-        const request1 = { name: queueName, data: { z: 0, x: 0, y: 0, metatile: 8, parent: 'parent' } };
-        const request2 = { name: queueName, data: { z: 1, x: 0, y: 0, metatile: 8, parent: 'parent' } };
-        const request3 = { name: queueName, data: { z: 2, x: 0, y: 0, metatile: 8, parent: 'parent' } };
-        const request4 = { name: queueName, data: { z: 3, x: 0, y: 0, metatile: 8, parent: 'parent' } };
-        const request5 = { name: queueName, data: { z: 4, x: 0, y: 0, metatile: 8, parent: 'parent' } };
+        const request1 = { data: { z: 0, x: 0, y: 0, metatile: 8, parent: 'parent' } };
+        const request2 = { data: { z: 1, x: 0, y: 0, metatile: 8, parent: 'parent' } };
+        const request3 = { data: { z: 2, x: 0, y: 0, metatile: 8, parent: 'parent' } };
+        const request4 = { data: { z: 3, x: 0, y: 0, metatile: 8, parent: 'parent' } };
+        const request5 = { data: { z: 4, x: 0, y: 0, metatile: 8, parent: 'parent' } };
 
-        await pgBoss.insert([request1, request2, request3, request4, request5]);
+        await pgBoss.insert(queueName, [request1, request2, request3, request4, request5]);
 
         const consumePromise = consumeAndProcessFactory(container)();
 
@@ -1161,7 +1179,8 @@ describe('retiler', function () {
 
     afterEach(async () => {
       const pgBoss = container.resolve<PgBoss>(SERVICES.PGBOSS);
-      await pgBoss.clearStorage();
+      const queueName = container.resolve<string>(QUEUE_NAME);
+      await cleanupQueue(pgBoss, queueName);
     });
 
     afterAll(async () => {
@@ -1189,7 +1208,7 @@ describe('retiler', function () {
 
           expect(provider.activeQueueName).toBe(queueName);
 
-          const job = await waitForJobToBeResolved(pgBoss, jobId as string);
+          const job = await waitForJobToBeResolved(pgBoss, queueName, jobId as string);
           await provider.stopQueue();
 
           await expect(consumePromise).resolves.not.toThrow();
@@ -1203,7 +1222,7 @@ describe('retiler', function () {
               const storeCall = storeTileSpy.mock.calls[i]![0];
               const key = determineKey({ x: storeCall.x, y: storeCall.y, z: storeCall.z, metatile: storeCall.metatile });
               const expectedBuffer = await fsPromises.readFile(`tests/integration/expected/${key}`);
-              expect(expectedBuffer.compare(storeCall.buffer)).toBe(0);
+              await expectPixelsEqual(storeCall.buffer, expectedBuffer);
             }
           }
 
@@ -1228,7 +1247,7 @@ describe('retiler', function () {
 
           const consumePromise = consumeAndProcessFactory(container)();
 
-          const job = await waitForJobToBeResolved(pgBoss, jobId as string);
+          const job = await waitForJobToBeResolved(pgBoss, queueName, jobId as string);
 
           await provider.stopQueue();
 
@@ -1288,7 +1307,8 @@ describe('retiler', function () {
 
     afterEach(async () => {
       const pgBoss = container.resolve<PgBoss>(SERVICES.PGBOSS);
-      await pgBoss.clearStorage();
+      const queueName = container.resolve<string>(QUEUE_NAME);
+      await cleanupQueue(pgBoss, queueName);
     });
 
     afterAll(async () => {
@@ -1313,9 +1333,9 @@ describe('retiler', function () {
 
         const storageProviders = container.resolve<TilesStorageProvider[]>(TILES_STORAGE_PROVIDERS);
         const storeTileSpies = storageProviders.map((provider) => jest.spyOn(provider, 'storeTile'));
-        const deleteTilesSpies = storageProviders.map((provider) => jest.spyOn(provider, 'deleteTiles').mockResolvedValueOnce({} as never));
+        const deleteTilesSpies = storageProviders.map((provider) => jest.spyOn(provider, 'deleteTiles').mockResolvedValueOnce(undefined));
 
-        const job = await waitForJobToBeResolved(pgBoss, jobId as string);
+        const job = await waitForJobToBeResolved(pgBoss, queueName, jobId as string);
         await provider.stopQueue();
 
         await expect(consumePromise).resolves.not.toThrow();
@@ -1323,7 +1343,7 @@ describe('retiler', function () {
         expect(job).toHaveProperty('state', 'completed');
 
         storeTileSpies.forEach((spy) => expect(spy.mock.calls).toHaveLength(0));
-        deleteTilesSpies.forEach((spy) => expect(spy.mock.calls).toHaveLength(1));
+        deleteTilesSpies.forEach((spy) => expect(spy.mock.calls).toHaveLength(4));
 
         getMapScope.done();
         detilerScope.done();
@@ -1347,9 +1367,9 @@ describe('retiler', function () {
 
         const storageProviders = container.resolve<TilesStorageProvider[]>(TILES_STORAGE_PROVIDERS);
         const storeTileSpies = storageProviders.map((provider) => jest.spyOn(provider, 'storeTile'));
-        const deleteTilesSpies = storageProviders.map((provider) => jest.spyOn(provider, 'deleteTiles').mockResolvedValueOnce({} as never));
+        const deleteTilesSpies = storageProviders.map((provider) => jest.spyOn(provider, 'deleteTiles').mockResolvedValueOnce(undefined));
 
-        const job = await waitForJobToBeResolved(pgBoss, jobId as string);
+        const job = await waitForJobToBeResolved(pgBoss, queueName, jobId as string);
         await provider.stopQueue();
 
         await expect(consumePromise).resolves.not.toThrow();
@@ -1357,7 +1377,7 @@ describe('retiler', function () {
         expect(job).toHaveProperty('state', 'completed');
 
         storeTileSpies.forEach((spy) => expect(spy.mock.calls).toHaveLength(1));
-        deleteTilesSpies.forEach((spy) => expect(spy.mock.calls).toHaveLength(1));
+        deleteTilesSpies.forEach((spy) => expect(spy.mock.calls).toHaveLength(3));
 
         getMapScope.done();
         detilerScope.done();
@@ -1384,7 +1404,7 @@ describe('retiler', function () {
         const storageProviders = container.resolve<TilesStorageProvider[]>(TILES_STORAGE_PROVIDERS);
         jest.spyOn(storageProviders[0]!, 'deleteTiles').mockRejectedValue(error);
 
-        const job = await waitForJobToBeResolved(pgBoss, jobId as string);
+        const job = await waitForJobToBeResolved(pgBoss, queueName, jobId as string);
 
         await provider.stopQueue();
 
@@ -1416,7 +1436,7 @@ describe('retiler', function () {
 
         const consumePromise = consumeAndProcessFactory(container)();
 
-        const job = await waitForJobToBeResolved(pgBoss, jobId as string);
+        const job = await waitForJobToBeResolved(pgBoss, queueName, jobId as string);
 
         await provider.stopQueue();
 
@@ -1440,7 +1460,7 @@ describe('retiler', function () {
         const getMapScope = getMapInterceptor.reply(httpStatusCodes.OK, buffer);
         const error1 = { Message: 'err1', Key: 'key1' };
         const error2 = { Message: 'err2', Key: 'key2' };
-        s3SendMock.mockResolvedValue({ Errors: [error1, error2] } as never);
+        s3SendMock.mockResolvedValue({ Errors: [error1, error2] });
 
         const pgBoss = container.resolve<PgBoss>(SERVICES.PGBOSS);
         const provider = container.resolve<PgBossJobQueueProvider>(JOB_QUEUE_PROVIDER);
@@ -1449,7 +1469,7 @@ describe('retiler', function () {
 
         const consumePromise = consumeAndProcessFactory(container)();
 
-        const job = await waitForJobToBeResolved(pgBoss, jobId as string);
+        const job = await waitForJobToBeResolved(pgBoss, queueName, jobId as string);
 
         await provider.stopQueue();
 
@@ -1474,7 +1494,7 @@ describe('retiler', function () {
         const errorMessage = 'send error';
         const error = new Error(errorMessage);
         s3SendMock.mockResolvedValue({});
-        (fsPromises.unlink as jest.Mock).mockRejectedValueOnce(error);
+        (fsPromises.unlink as unknown as jest.Mock).mockRejectedValueOnce(error);
 
         const pgBoss = container.resolve<PgBoss>(SERVICES.PGBOSS);
         const provider = container.resolve<PgBossJobQueueProvider>(JOB_QUEUE_PROVIDER);
@@ -1483,7 +1503,7 @@ describe('retiler', function () {
 
         const consumePromise = consumeAndProcessFactory(container)();
 
-        const job = await waitForJobToBeResolved(pgBoss, jobId as string);
+        const job = await waitForJobToBeResolved(pgBoss, queueName, jobId as string);
 
         await provider.stopQueue();
 
@@ -1510,7 +1530,7 @@ describe('retiler', function () {
         const mockFsNotFoundError = error as NodeJS.ErrnoException;
         mockFsNotFoundError.code = FS_FILE_NOT_FOUND_ERROR_CODE;
         s3SendMock.mockResolvedValue({});
-        (fsPromises.unlink as jest.Mock).mockRejectedValue(mockFsNotFoundError);
+        (fsPromises.unlink as unknown as jest.Mock).mockRejectedValue(mockFsNotFoundError);
 
         const pgBoss = container.resolve<PgBoss>(SERVICES.PGBOSS);
         const provider = container.resolve<PgBossJobQueueProvider>(JOB_QUEUE_PROVIDER);
@@ -1519,7 +1539,7 @@ describe('retiler', function () {
 
         const consumePromise = consumeAndProcessFactory(container)();
 
-        const job = await waitForJobToBeResolved(pgBoss, jobId as string);
+        const job = await waitForJobToBeResolved(pgBoss, queueName, jobId as string);
         await provider.stopQueue();
 
         await expect(consumePromise).resolves.not.toThrow();

@@ -1,4 +1,5 @@
 import { readFile } from 'fs/promises';
+import { Tracer } from '@opentelemetry/api';
 import { IDetilerClient } from '@map-colonies/detiler-client';
 import jsLogger from '@map-colonies/js-logger';
 import { AxiosInstance } from 'axios';
@@ -16,6 +17,7 @@ const REMOTE_STATE_TIMESTAMP = '2024-01-15T21:20:36Z';
 describe('TileProcessor', () => {
   let processor: TileProcessor;
   let processorWithMultiStores: TileProcessor;
+  let tracerMock: { startActiveSpan: jest.Mock; startSpan: jest.Mock };
   let mapProv: MapProvider;
   let mapSplitterProv: MapSplitterProvider;
   let tilesStorageProv: TilesStorageProvider;
@@ -54,7 +56,19 @@ describe('TileProcessor', () => {
       mapProv = {
         getMap,
       };
-
+      tracerMock = {
+        startActiveSpan: jest.fn().mockImplementation((_name: string, _options: unknown, fn: (span: unknown) => unknown) =>
+          fn({
+            setStatus: jest.fn(),
+            recordException: jest.fn(),
+            end: jest.fn(),
+            setAttribute: jest.fn(),
+            setAttributes: jest.fn(),
+            addEvent: jest.fn(),
+          })
+        ),
+        startSpan: jest.fn(),
+      };
       mapSplitterProv = {
         splitMap,
       };
@@ -84,6 +98,7 @@ describe('TileProcessor', () => {
 
       processor = new TileProcessor(
         jsLogger({ enabled: false }),
+        tracerMock,
         mapProv,
         mapSplitterProv,
         [tilesStorageProv],
@@ -96,6 +111,7 @@ describe('TileProcessor', () => {
 
       processorWithMultiStores = new TileProcessor(
         jsLogger({ enabled: false }),
+        tracerMock,
         mapProv,
         mapSplitterProv,
         [tilesStorageProv, anotherTilesStorageProv],
@@ -249,6 +265,7 @@ describe('TileProcessor', () => {
     it('should call all the processing functions in a row and resolve without errors if detiler is not configured', async () => {
       const processor = new TileProcessor(
         jsLogger({ enabled: false }),
+        tracerMock,
         mapProv,
         mapSplitterProv,
         [tilesStorageProv],
@@ -366,6 +383,7 @@ describe('TileProcessor', () => {
 
       const tileProcessorWithForce = new TileProcessor(
         jsLogger({ enabled: false }),
+        tracerMock,
         mapProv,
         mapSplitterProv,
         [tilesStorageProv, anotherTilesStorageProv],
@@ -560,8 +578,11 @@ describe('TileProcessor', () => {
       expect(mapProv.getMap).toHaveBeenCalled();
       expect(mapSplitterProv.splitMap).toHaveBeenCalled();
       expect(tilesStorageProv.storeTiles).toHaveBeenCalledTimes(0);
-      expect(tilesStorageProv.deleteTiles).toHaveBeenCalledTimes(1);
-      expect(tilesStorageProv.deleteTiles).toHaveBeenCalledWith(blankTiles);
+      expect(tilesStorageProv.deleteTiles).toHaveBeenCalledTimes(4);
+      expect(tilesStorageProv.deleteTiles).toHaveBeenNthCalledWith(1, [blankTiles[0]]);
+      expect(tilesStorageProv.deleteTiles).toHaveBeenNthCalledWith(2, [blankTiles[1]]);
+      expect(tilesStorageProv.deleteTiles).toHaveBeenNthCalledWith(3, [blankTiles[2]]);
+      expect(tilesStorageProv.deleteTiles).toHaveBeenNthCalledWith(4, [blankTiles[3]]);
     });
 
     it('should store splitted tiles and delete blank tiles and resolve without errors', async () => {
@@ -599,10 +620,14 @@ describe('TileProcessor', () => {
       expect(mockedDetiler.queryCooldownsAsyncGenerator).not.toHaveBeenCalled();
       expect(mapProv.getMap).toHaveBeenCalled();
       expect(mapSplitterProv.splitMap).toHaveBeenCalled();
-      expect(tilesStorageProv.storeTiles).toHaveBeenCalledTimes(1);
-      expect(tilesStorageProv.storeTiles).toHaveBeenCalledWith(expectedSplittedTiles);
-      expect(tilesStorageProv.deleteTiles).toHaveBeenCalledTimes(1);
-      expect(tilesStorageProv.deleteTiles).toHaveBeenCalledWith(blankTiles);
+      expect(tilesStorageProv.storeTiles).toHaveBeenCalledTimes(2);
+      expect(tilesStorageProv.storeTiles).toHaveBeenNthCalledWith(1, [expectedSplittedTiles[0]]);
+      expect(tilesStorageProv.storeTiles).toHaveBeenNthCalledWith(2, [expectedSplittedTiles[1]]);
+      expect(tilesStorageProv.deleteTiles).toHaveBeenCalledTimes(4);
+      expect(tilesStorageProv.deleteTiles).toHaveBeenNthCalledWith(1, [blankTiles[0]]);
+      expect(tilesStorageProv.deleteTiles).toHaveBeenNthCalledWith(2, [blankTiles[1]]);
+      expect(tilesStorageProv.deleteTiles).toHaveBeenNthCalledWith(3, [blankTiles[2]]);
+      expect(tilesStorageProv.deleteTiles).toHaveBeenNthCalledWith(4, [blankTiles[3]]);
     });
 
     it('should fail if setTileDetails fails and configured to not proceed on detiler failure', async () => {
@@ -623,6 +648,7 @@ describe('TileProcessor', () => {
 
       const tileProcessorWithNoProceeding = new TileProcessor(
         jsLogger({ enabled: false }),
+        tracerMock,
         mapProv,
         mapSplitterProv,
         [tilesStorageProv, anotherTilesStorageProv],
@@ -753,6 +779,43 @@ describe('TileProcessor', () => {
       expect(mapSplitterProv.splitMap).toHaveBeenCalled();
       expect(tilesStorageProv.storeTiles).toHaveBeenCalled();
       expect(anotherTilesStorageProv.storeTiles).toHaveBeenCalled();
+      expect(mockedDetiler.setTileDetails).not.toHaveBeenCalled();
+    });
+
+    it('should fail the entire metatile job if 1 subtile fails to store (all-or-nothing semantics)', async () => {
+      const tile = { x: 0, y: 0, z: 0, metatile: 8 };
+      getTileDetails.mockResolvedValue(null);
+      const getMapResponse = Buffer.from('test');
+      getMap.mockResolvedValue(getMapResponse);
+      const splittedTiles = [
+        { z: 0, x: 0, y: 0, metatile: 1, buffer: Buffer.from([]) },
+        { z: 0, x: 1, y: 0, metatile: 1, buffer: Buffer.from([]) },
+        { z: 0, x: 0, y: 1, metatile: 1, buffer: Buffer.from([]) },
+        { z: 0, x: 1, y: 1, metatile: 1, buffer: Buffer.from([]) },
+      ];
+      const splitResultMock: MapSplitResult = {
+        splittedTiles,
+        blankTiles: [],
+        outOfBoundsCount: 0,
+        isMetatileBlank: false,
+      };
+      splitMap.mockResolvedValue(splitResultMock);
+      const storeTileError = new Error('failed to store 3rd subtile');
+      // Succeed on first 2 tiles, fail on the 3rd
+      storeTiles
+        .mockResolvedValueOnce(undefined)
+        .mockResolvedValueOnce(undefined)
+        .mockRejectedValueOnce(storeTileError)
+        .mockResolvedValueOnce(undefined);
+
+      await expect(processor.processTile(tile)).rejects.toThrow(storeTileError);
+
+      // Verify job fails (no setTileDetails call for success)
+      expect(mockedDetiler.getTileDetails).toHaveBeenCalledWith({ kit: 'testKit', x: 0, y: 0, z: 0 });
+      expect(mapProv.getMap).toHaveBeenCalled();
+      expect(mapSplitterProv.splitMap).toHaveBeenCalled();
+      // storeTiles should be called for first 2 tiles successfully, then fail on 3rd
+      expect(tilesStorageProv.storeTiles).toHaveBeenCalledTimes(3);
       expect(mockedDetiler.setTileDetails).not.toHaveBeenCalled();
     });
   });

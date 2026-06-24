@@ -40,7 +40,8 @@
           "cert": ""
         },
         "database": "postgres",
-        "noSupervisor": true
+        "supervisor": true,
+        "healthCheckTimeoutMs": 5000
       }
     },
     "map": {
