@@ -2,6 +2,29 @@
 
 All notable changes to this project will be documented in this file. See [standard-version](https://github.com/conventional-changelog/standard-version) for commit guidelines.
 
+## [4.1.0](https://github.com/MapColonies/retiler-new/compare/v4.0.1...v4.1.0) (2026-06-24)
+
+
+### Features
+
+* add function ([6f9e83f](https://github.com/MapColonies/retiler-new/commit/6f9e83f2a4363514dc898a09f46ca7c6d33df16c))
+* add libs ([c79ef9f](https://github.com/MapColonies/retiler-new/commit/c79ef9f5cb0c46c006a72373eeb4e107ef8f6415))
+* add test ([2f1a57d](https://github.com/MapColonies/retiler-new/commit/2f1a57d749cab14876a06194262bdd882753fb9e))
+* add traces ([9dc1a21](https://github.com/MapColonies/retiler-new/commit/9dc1a21e13d45a6a3e2119fff2825be80151ea10))
+* add traces + pgboss-12.8 ([ccba293](https://github.com/MapColonies/retiler-new/commit/ccba2935accb83b5ced1f1cefa351b3d23d0e356))
+
+
+### Bug Fixes
+
+* add readiness ([edae29f](https://github.com/MapColonies/retiler-new/commit/edae29fedcaa73de74aaa9eed360e306bbcc0ebc))
+* add readiness ([4a34313](https://github.com/MapColonies/retiler-new/commit/4a34313bf3fa37b206f77263df9cf936fdc9aed2))
+* add readiness ([27d68fc](https://github.com/MapColonies/retiler-new/commit/27d68fcad5706d273c493ccef3f871ee70db29b6))
+* add the new schemas ([38afd8c](https://github.com/MapColonies/retiler-new/commit/38afd8c137e1b9202c38f2e3f49a14ccaf25c5ba))
+* pr file ([017d620](https://github.com/MapColonies/retiler-new/commit/017d6208316f0a0e3e87c4631f554ec77d07607d))
+* pr file ([8d8dde1](https://github.com/MapColonies/retiler-new/commit/8d8dde1390f4dc197eee06af697b407372816d56))
+* pr file ([3f2910f](https://github.com/MapColonies/retiler-new/commit/3f2910fdcfcb026c23a1687a7658bccf31a748ed))
+* tileprocessor logic ([abe28a0](https://github.com/MapColonies/retiler-new/commit/abe28a0c7c26d77dade3d40a1a1ca1f386def411))
+
 ## [4.0.1](https://github.com/MapColonies/retiler/compare/v4.0.0...v4.0.1) (2026-04-07)
 
 
