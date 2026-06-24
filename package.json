@@ -38,7 +38,7 @@
     "@map-colonies/express-access-log-middleware": "^3.0.1",
     "@map-colonies/js-logger": "^2.0.0",
     "@map-colonies/read-pkg": "^1.0.0",
-    "@map-colonies/schemas": "https://ghatmpstorage.blob.core.windows.net/npm-packages/schemas-d69ec2bb4389d18fe8e6a6801fa452fcb833c744.tgz",
+    "@map-colonies/schemas": "^1.22.0",
     "@map-colonies/telemetry": "^10.0.1",
     "@map-colonies/tile-calc": "^0.1.5",
     "@opentelemetry/api": "^1.9.0",
