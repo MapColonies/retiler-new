@@ -62,7 +62,7 @@
     "@jest/globals": "^30.0.5",
     "@map-colonies/eslint-config": "^6.0.0",
     "@map-colonies/prettier-config": "0.0.1",
-    "@map-colonies/tsconfig": "^1.0.1",
+    "@map-colonies/tsconfig": "^2.0.0",
     "@smithy/types": "^4.3.1",
     "@swc/core": "^1.11.11",
     "@swc/jest": "^0.2.37",
