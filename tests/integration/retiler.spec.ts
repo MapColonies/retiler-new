@@ -2,7 +2,7 @@
 import * as fsPromises from 'fs/promises';
 import { setTimeout as setTimeoutPromise } from 'node:timers/promises';
 import { Registry } from 'prom-client';
-import jsLogger from '@map-colonies/js-logger';
+import { jsLogger, type Logger } from '@map-colonies/js-logger';
 import { trace } from '@opentelemetry/api';
 import { DependencyContainer } from 'tsyringe';
 import { PgBoss } from 'pg-boss';
@@ -85,8 +85,10 @@ describe('retiler', function () {
   let mapBuffer2048x2048: Buffer;
   let mapBuffer512x512: Buffer;
   let determineKey: (tile: Required<Tile>) => string;
+  let logger: Logger;
 
   beforeAll(async () => {
+    logger = await jsLogger({ enabled: false });
     await initConfig(true);
     config = getConfig();
     mapUrl = config.get('app.map.url');
@@ -135,7 +137,7 @@ describe('retiler', function () {
               },
             },
           },
-          { token: SERVICES.LOGGER, provider: { useValue: jsLogger({ enabled: false }) } },
+          { token: SERVICES.LOGGER, provider: { useValue: logger } },
           { token: SERVICES.TRACER, provider: { useValue: trace.getTracer('testTracer') } },
           { token: METRICS_REGISTRY, provider: { useValue: new Registry() } },
           { token: TILES_STORAGE_LAYOUT, provider: { useValue: { format: '{z}/{x}/{y}.png', shouldFlipY: true } } },
@@ -883,7 +885,7 @@ describe('retiler', function () {
               },
             },
           },
-          { token: SERVICES.LOGGER, provider: { useValue: jsLogger({ enabled: false }) } },
+          { token: SERVICES.LOGGER, provider: { useValue: logger } },
           { token: SERVICES.TRACER, provider: { useValue: trace.getTracer('testTracer') } },
           { token: METRICS_REGISTRY, provider: { useValue: new Registry() } },
           { token: TILES_STORAGE_LAYOUT, provider: { useValue: { format: '{z}/{x}/{y}.png', shouldFlipY: true } } },
@@ -1039,7 +1041,7 @@ describe('retiler', function () {
               },
             },
           },
-          { token: SERVICES.LOGGER, provider: { useValue: jsLogger({ enabled: false }) } },
+          { token: SERVICES.LOGGER, provider: { useValue: logger } },
           { token: SERVICES.TRACER, provider: { useValue: trace.getTracer('testTracer') } },
           { token: METRICS_REGISTRY, provider: { useValue: new Registry() } },
           { token: TILES_STORAGE_LAYOUT, provider: { useValue: { format: '{z}/{x}/{y}.png', shouldFlipY: true } } },
@@ -1158,7 +1160,7 @@ describe('retiler', function () {
               },
             },
           },
-          { token: SERVICES.LOGGER, provider: { useValue: jsLogger({ enabled: false }) } },
+          { token: SERVICES.LOGGER, provider: { useValue: logger } },
           { token: SERVICES.TRACER, provider: { useValue: trace.getTracer('testTracer') } },
           { token: METRICS_REGISTRY, provider: { useValue: new Registry() } },
           { token: TILES_STORAGE_LAYOUT, provider: { useValue: { format: '{z}/{x}/{y}.png', shouldFlipY: true } } },
@@ -1286,7 +1288,7 @@ describe('retiler', function () {
               },
             },
           },
-          { token: SERVICES.LOGGER, provider: { useValue: jsLogger({ enabled: false }) } },
+          { token: SERVICES.LOGGER, provider: { useValue: logger } },
           { token: SERVICES.TRACER, provider: { useValue: trace.getTracer('testTracer') } },
           { token: METRICS_REGISTRY, provider: { useValue: new Registry() } },
           { token: TILES_STORAGE_LAYOUT, provider: { useValue: { format: '{z}/{x}/{y}.png', shouldFlipY: true } } },

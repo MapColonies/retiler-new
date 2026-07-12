@@ -1,6 +1,6 @@
 import * as fs from 'fs';
 import * as fsPromises from 'fs/promises';
-import jsLogger from '@map-colonies/js-logger';
+import { jsLogger, type Logger } from '@map-colonies/js-logger';
 import { FsTilesStorage } from '../../../src/retiler/tilesStorageProvider/fs';
 import { FS_FILE_NOT_FOUND_ERROR_CODE } from '../../../src/retiler/tilesStorageProvider/constants';
 
@@ -12,11 +12,17 @@ jest.mock('@map-colonies/read-pkg', () => ({
   }),
 }));
 
+let logger: Logger;
+
+beforeAll(async () => {
+  logger = await jsLogger({ enabled: false });
+});
+
 describe('FsTilesStorage', () => {
   let storage: FsTilesStorage;
 
   beforeEach(function () {
-    storage = new FsTilesStorage(jsLogger({ enabled: false }), 'test-path', { format: 'test/{z}/{x}/{y}.png', shouldFlipY: true });
+    storage = new FsTilesStorage(logger, 'test-path', { format: 'test/{z}/{x}/{y}.png', shouldFlipY: true });
   });
 
   afterEach(function () {

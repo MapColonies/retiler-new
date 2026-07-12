@@ -1,5 +1,5 @@
 import { DependencyContainer, Lifecycle, instancePerContainerCachingFactory } from 'tsyringe';
-import jsLogger, { Logger } from '@map-colonies/js-logger';
+import { jsLogger, Logger } from '@map-colonies/js-logger';
 import { getOtelMixin } from '@map-colonies/telemetry';
 import { HealthCheck } from '@godaddy/terminus';
 import axios from 'axios';
@@ -49,19 +49,19 @@ export const registerExternalValues = async (options?: RegisterOptions): Promise
 
   try {
     const dependencies: InjectionObject<unknown>[] = [
+      { token: SERVICES.CONFIG, provider: { useValue: getConfig() } },
       {
         token: SERVICES.LOGGER,
         provider: {
-          useFactory: instancePerContainerCachingFactory((container) => {
-            const queueName = container.resolve<string>(QUEUE_NAME);
+          useFactory: instancePerContainerCachingFactory(async (container) => {
             const config = container.resolve<ConfigType>(SERVICES.CONFIG);
             const loggerConfig = config.get('telemetry.logger');
-            const logger = jsLogger({ ...loggerConfig, mixin: getOtelMixin(), base: { queue: queueName } });
-            const cleanupRegistryLogger = logger.child({ subComponent: 'cleanupRegistry' });
-            cleanupRegistry.on('itemFailed', (id, error, msg) => cleanupRegistryLogger.error({ msg, itemId: id, err: error }));
-            cleanupRegistry.on('finished', (status) => cleanupRegistryLogger.info({ msg: `cleanup registry finished cleanup`, status }));
-            return logger;
+            return await jsLogger({ ...loggerConfig, mixin: getOtelMixin() });
           }),
+        },
+        postInjectionHook: async (deps: DependencyContainer): Promise<void> => {
+          const logger = await deps.resolve<Promise<Logger>>(SERVICES.LOGGER);
+          deps.register(SERVICES.LOGGER, { useValue: logger });
         },
       },
       {
@@ -76,7 +76,6 @@ export const registerExternalValues = async (options?: RegisterOptions): Promise
           cleanupRegistry.on('finished', (status) => cleanupRegistryLogger.info({ msg: `cleanup registry finished cleanup`, status }));
         },
       },
-      { token: SERVICES.CONFIG, provider: { useValue: getConfig() } },
       {
         token: SERVICES.TRACER,
         provider: {

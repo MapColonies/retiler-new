@@ -1,8 +1,14 @@
 import { AxiosError, AxiosInstance } from 'axios';
-import jsLogger from '@map-colonies/js-logger';
+import { jsLogger, type Logger } from '@map-colonies/js-logger';
 import { ArcgisMapProvider } from '../../../src/retiler/mapProvider/arcgis/arcgisMapProvider';
 
 jest.mock('axios');
+
+let logger: Logger;
+
+beforeAll(async () => {
+  logger = await jsLogger({ enabled: false });
+});
 
 describe('arcgisMapProvider', () => {
   describe('#getMap', () => {
@@ -11,7 +17,7 @@ describe('arcgisMapProvider', () => {
 
     beforeEach(function () {
       mockedClient = { get: jest.fn() } as unknown as jest.Mocked<AxiosInstance>;
-      arcgisProv = new ArcgisMapProvider(mockedClient, jsLogger({ enabled: false }), 'http://url.com', 'png32');
+      arcgisProv = new ArcgisMapProvider(mockedClient, logger, 'http://url.com', 'png32');
     });
 
     afterEach(function () {

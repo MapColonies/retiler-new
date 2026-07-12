@@ -2,15 +2,16 @@
 import 'reflect-metadata';
 import { createServer } from 'node:http';
 import express from 'express';
-import { Registry } from 'prom-client';
-import { Logger } from '@map-colonies/js-logger';
-import { DependencyContainer } from 'tsyringe';
-import { CleanupRegistry } from '@map-colonies/cleanup-registry';
+import type { Registry } from 'prom-client';
+import type { Logger } from '@map-colonies/js-logger';
+import type { DependencyContainer } from 'tsyringe';
+import type { CleanupRegistry } from '@map-colonies/cleanup-registry';
 import { collectMetricsExpressMiddleware } from '@map-colonies/telemetry/prom-metrics';
-import { createTerminus, HealthCheck } from '@godaddy/terminus';
+import type { HealthCheck } from '@godaddy/terminus';
+import { createTerminus } from '@godaddy/terminus';
 import { CONSUME_AND_PROCESS_FACTORY, ExitCodes, HEALTHCHECK, METRICS_REGISTRY, ON_SIGNAL, SERVICES } from './common/constants';
 import { registerExternalValues } from './containerConfig';
-import { ConfigType } from './common/config';
+import type { ConfigType } from './common/config';
 
 let depContainer: DependencyContainer | undefined;
 
