@@ -4,8 +4,8 @@ import { jsLogger, type Logger } from '@map-colonies/js-logger';
 import { FsTilesStorage } from '../../../src/retiler/tilesStorageProvider/fs';
 import { FS_FILE_NOT_FOUND_ERROR_CODE } from '../../../src/retiler/tilesStorageProvider/constants';
 
-jest.mock('fs');
-jest.mock('fs/promises');
+jest.mock('node:fs');
+jest.mock('node:fs/promises');
 jest.mock('@map-colonies/read-pkg', () => ({
   readPackageJsonSync: jest.fn().mockImplementation(() => {
     return { name: 'retiler_test' };

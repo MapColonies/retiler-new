@@ -1,5 +1,4 @@
 import { readFile } from 'node:fs/promises';
-import { Tracer } from '@opentelemetry/api';
 import type { IDetilerClient } from '@map-colonies/detiler-client';
 import { jsLogger, type Logger } from '@map-colonies/js-logger';
 import type { AxiosInstance } from 'axios';

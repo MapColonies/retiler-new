@@ -3,7 +3,6 @@ import { Registry } from 'prom-client';
 import { jsLogger, type Logger } from '@map-colonies/js-logger';
 import type { PgBoss } from 'pg-boss';
 import { serializeError } from 'serialize-error';
-import { type Tracer } from '@opentelemetry/api';
 import { PgBossJobQueueProvider } from '../../../src/retiler/jobQueueProvider/pgBossJobQueue';
 import { LONG_RUNNING_TEST } from '../../integration/helpers';
 

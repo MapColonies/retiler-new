@@ -1,8 +1,8 @@
-import { readFile } from 'fs/promises';
+import { readFile } from 'node:fs/promises';
 import sharp from 'sharp';
 import { faker } from '@faker-js/faker';
 import { jsLogger, type Logger } from '@map-colonies/js-logger';
-import { Tile } from '@map-colonies/tile-calc';
+import type { Tile } from '@map-colonies/tile-calc';
 import { SharpMapSplitter } from '../../../src/retiler/mapSplitterProvider/sharp';
 import { createBlankBuffer } from '../../integration/helpers';
 

@@ -3,7 +3,7 @@ import type { Tile } from '@map-colonies/tile-calc';
 declare global {
   namespace jest {
     interface Matchers<R> {
-      toContainSameTiles: (expectedTiles: Tile[]) => CustomMatcherResult;
+      toContainSameTiles: (expectedTiles: Tile[]) => R;
     }
   }
 }

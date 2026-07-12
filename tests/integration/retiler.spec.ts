@@ -7,7 +7,7 @@ import { trace } from '@opentelemetry/api';
 import type { DependencyContainer } from 'tsyringe';
 import type { PgBoss } from 'pg-boss';
 import type { Interceptor, Scope } from 'nock';
-import nock from 'nock';
+import nock, { cleanAll } from 'nock';
 import type { Tile } from '@map-colonies/tile-calc';
 import format from 'string-format';
 import httpStatusCodes from 'http-status-codes';
@@ -48,8 +48,8 @@ const cleanupQueue = async (pgBoss: PgBoss, queueName: string): Promise<void> =>
   await pgBoss.stop({ graceful: false });
 };
 
-jest.mock('fs/promises', () => ({
-  ...jest.requireActual<Record<string, unknown>>('fs/promises'),
+jest.mock('node:fs/promises', () => ({
+  ...jest.requireActual<Record<string, unknown>>('node:fs/promises'),
   writeFile: jest.fn(),
   unlink: jest.fn(),
 }));
@@ -111,7 +111,7 @@ describe('retiler', function () {
   });
 
   afterEach(function () {
-    nock.cleanAll();
+    cleanAll();
     jest.clearAllMocks();
     s3SendMock.mockResolvedValue({});
     (fsPromises.writeFile as unknown as jest.Mock).mockResolvedValue(undefined);
