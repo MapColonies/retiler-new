@@ -1,5 +1,5 @@
-import * as fs from 'fs';
-import * as fsPromises from 'fs/promises';
+import * as fs from 'node:fs';
+import * as fsPromises from 'node:fs/promises';
 import { jsLogger, type Logger } from '@map-colonies/js-logger';
 import { FsTilesStorage } from '../../../src/retiler/tilesStorageProvider/fs';
 import { FS_FILE_NOT_FOUND_ERROR_CODE } from '../../../src/retiler/tilesStorageProvider/constants';

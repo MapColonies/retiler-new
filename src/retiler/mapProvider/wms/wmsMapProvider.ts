@@ -46,7 +46,6 @@ export class WmsMapProvider implements MapProvider {
         requestConfig
       );
 
-      // eslint-disable-next-line @typescript-eslint/no-unsafe-assignment
       const contentType = response.headers['Content-Type'] ?? response.headers['content-type'];
       const isXml = typeof contentType === 'string' && contentType.toLowerCase().includes('xml');
       if (isXml) {

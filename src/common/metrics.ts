@@ -1,4 +1,4 @@
-import { Histogram } from 'prom-client';
+import type { Histogram } from 'prom-client';
 
 export const enum ProcessKind {
   FETCH = 'fetch',

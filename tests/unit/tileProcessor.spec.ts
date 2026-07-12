@@ -1,15 +1,15 @@
-import { readFile } from 'fs/promises';
+import { readFile } from 'node:fs/promises';
 import { Tracer } from '@opentelemetry/api';
-import { IDetilerClient } from '@map-colonies/detiler-client';
+import type { IDetilerClient } from '@map-colonies/detiler-client';
 import { jsLogger, type Logger } from '@map-colonies/js-logger';
-import { AxiosInstance } from 'axios';
+import type { AxiosInstance } from 'axios';
 import { Registry } from 'prom-client';
-import { ConfigType } from '../../src/common/config';
-import { MapProvider, MapSplitterProvider, TilesStorageProvider } from '../../src/retiler/interfaces';
+import type { ConfigType } from '../../src/common/config';
+import type { MapProvider, MapSplitterProvider, TilesStorageProvider } from '../../src/retiler/interfaces';
 import { TileProcessor } from '../../src/retiler/tileProcessor';
 import { timestampToUnix } from '../../src/common/util';
 import { MILLISECONDS_IN_SECOND } from '../../src/common/constants';
-import { MapSplitResult } from '../../src/retiler/types';
+import type { MapSplitResult } from '../../src/retiler/types';
 import { createBlankBuffer } from '../integration/helpers';
 
 const REMOTE_STATE_TIMESTAMP = '2024-01-15T21:20:36Z';

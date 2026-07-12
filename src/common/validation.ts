@@ -1,4 +1,5 @@
-import { Ajv, ErrorObject, JSONSchemaType } from 'ajv';
+import type { ErrorObject, JSONSchemaType } from 'ajv';
+import { Ajv } from 'ajv';
 
 const GENERAL_VALIDATION_ERROR = 'invalid content';
 

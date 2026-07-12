@@ -1,5 +1,5 @@
-import { JSONSchemaType } from 'ajv';
-import { StorageProviderConfig } from './interfaces';
+import type { JSONSchemaType } from 'ajv';
+import type { StorageProviderConfig } from './interfaces';
 
 export const TILES_STORAGE_PROVIDERS_SCHEMA: JSONSchemaType<StorageProviderConfig[]> = {
   type: 'array',

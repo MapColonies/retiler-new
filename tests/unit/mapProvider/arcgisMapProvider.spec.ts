@@ -1,4 +1,4 @@
-import { AxiosError, AxiosInstance } from 'axios';
+import type { AxiosError, AxiosInstance } from 'axios';
 import { jsLogger, type Logger } from '@map-colonies/js-logger';
 import { ArcgisMapProvider } from '../../../src/retiler/mapProvider/arcgis/arcgisMapProvider';
 

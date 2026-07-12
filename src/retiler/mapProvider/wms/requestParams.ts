@@ -1,5 +1,5 @@
-import { BoundingBox } from '@map-colonies/tile-calc';
-import { WmsVersion } from '../../types';
+import type { BoundingBox } from '@map-colonies/tile-calc';
+import type { WmsVersion } from '../../types';
 
 export interface WmsConfig {
   version: WmsVersion;

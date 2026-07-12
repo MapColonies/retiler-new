@@ -1,4 +1,5 @@
-import { Tile, validateTile, TILEGRID_WORLD_CRS84, SCALE_FACTOR } from '@map-colonies/tile-calc';
+import type { Tile } from '@map-colonies/tile-calc';
+import { validateTile, TILEGRID_WORLD_CRS84, SCALE_FACTOR } from '@map-colonies/tile-calc';
 
 export const isTileInBounds = (tile: Tile): boolean => {
   try {

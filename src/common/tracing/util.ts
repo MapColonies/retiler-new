@@ -1,4 +1,5 @@
-import { trace as traceAPI, Attributes, Context, Span, SpanStatusCode } from '@opentelemetry/api';
+import type { Attributes, Context, Span } from '@opentelemetry/api';
+import { trace as traceAPI, SpanStatusCode } from '@opentelemetry/api';
 import { SERVICE_NAME } from '../constants';
 
 export const promisifySpan = async <T>(fn: () => Promise<T>, span: Span): Promise<T> => {

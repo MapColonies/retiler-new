@@ -1,5 +1,5 @@
 /* eslint-disable @typescript-eslint/naming-convention */ // s3-client object commands arguments
-import crypto from 'crypto';
+import crypto from 'node:crypto';
 import { DeleteObjectsCommand, ObjectIdentifier, PutObjectCommand, S3Client } from '@aws-sdk/client-s3';
 import { EndpointV2 } from '@smithy/types';
 import { type Logger } from '@map-colonies/js-logger';

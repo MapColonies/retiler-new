@@ -1,18 +1,20 @@
 /* eslint-disable @typescript-eslint/naming-convention */
-import * as fsPromises from 'fs/promises';
+import * as fsPromises from 'node:fs/promises';
 import { setTimeout as setTimeoutPromise } from 'node:timers/promises';
 import { Registry } from 'prom-client';
 import { jsLogger, type Logger } from '@map-colonies/js-logger';
 import { trace } from '@opentelemetry/api';
-import { DependencyContainer } from 'tsyringe';
-import { PgBoss } from 'pg-boss';
-import nock, { Interceptor, Scope } from 'nock';
-import { Tile } from '@map-colonies/tile-calc';
+import type { DependencyContainer } from 'tsyringe';
+import type { PgBoss } from 'pg-boss';
+import type { Interceptor, Scope } from 'nock';
+import nock from 'nock';
+import type { Tile } from '@map-colonies/tile-calc';
 import format from 'string-format';
 import httpStatusCodes from 'http-status-codes';
-import { CleanupRegistry } from '@map-colonies/cleanup-registry';
+import type { CleanupRegistry } from '@map-colonies/cleanup-registry';
 import sharp from 'sharp';
-import { ConfigType, getConfig, initConfig } from '@src/common/config';
+import type { ConfigType } from '@src/common/config';
+import { getConfig, initConfig } from '@src/common/config';
 import { registerExternalValues } from '../../src/containerConfig';
 import { consumeAndProcessFactory } from '../../src/app';
 
@@ -25,10 +27,10 @@ import {
   TILES_STORAGE_LAYOUT,
   TILES_STORAGE_PROVIDERS,
 } from '../../src/common/constants';
-import { PgBossJobQueueProvider } from '../../src/retiler/jobQueueProvider/pgBossJobQueue';
-import { TilesStorageProvider } from '../../src/retiler/interfaces';
+import type { PgBossJobQueueProvider } from '../../src/retiler/jobQueueProvider/pgBossJobQueue';
+import type { TilesStorageProvider } from '../../src/retiler/interfaces';
 import { getFlippedY } from '../../src/retiler/util';
-import { TileStoragLayout } from '../../src/retiler/tilesStorageProvider/interfaces';
+import type { TileStoragLayout } from '../../src/retiler/tilesStorageProvider/interfaces';
 import { FS_FILE_NOT_FOUND_ERROR_CODE } from '../../src/retiler/tilesStorageProvider/constants';
 import { createBlankBuffer, LONG_RUNNING_TEST, waitForJobToBeResolved } from './helpers';
 
@@ -64,9 +66,9 @@ jest.mock('@aws-sdk/client-s3', () => ({
       endpointProvider: jest.fn().mockReturnValue('test-endpoint'),
     },
   })),
-  // eslint-disable-next-line @typescript-eslint/no-unsafe-return
+
   PutObjectCommand: jest.fn().mockImplementation((input: unknown) => input),
-  // eslint-disable-next-line @typescript-eslint/no-unsafe-return
+
   DeleteObjectsCommand: jest.fn().mockImplementation((input: unknown) => input),
 }));
 

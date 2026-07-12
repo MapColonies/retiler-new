@@ -1,4 +1,4 @@
-import { Tile } from '@map-colonies/tile-calc';
+import type { Tile } from '@map-colonies/tile-calc';
 
 declare global {
   namespace jest {

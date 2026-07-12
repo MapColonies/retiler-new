@@ -1,7 +1,7 @@
-import { AxiosError, AxiosInstance } from 'axios';
+import type { AxiosError, AxiosInstance } from 'axios';
 import { jsLogger, type Logger } from '@map-colonies/js-logger';
 import { WmsMapProvider } from '../../../src/retiler/mapProvider/wms/wmsMapProvider';
-import { WmsConfig, WmsRequestParams } from '../../../src/retiler/mapProvider/wms/requestParams';
+import type { WmsConfig, WmsRequestParams } from '../../../src/retiler/mapProvider/wms/requestParams';
 
 jest.mock('axios');
 
