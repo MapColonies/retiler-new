@@ -22,11 +22,8 @@ describe('FsTilesStorage', () => {
   let storage: FsTilesStorage;
 
   beforeEach(function () {
-    storage = new FsTilesStorage(logger, 'test-path', { format: 'test/{z}/{x}/{y}.png', shouldFlipY: true });
-  });
-
-  afterEach(function () {
     jest.clearAllMocks();
+    storage = new FsTilesStorage(logger, 'test-path', { format: 'test/{z}/{x}/{y}.png', shouldFlipY: true });
   });
 
   describe('#storeTile', () => {
