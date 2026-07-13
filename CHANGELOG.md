@@ -2,6 +2,13 @@
 
 All notable changes to this project will be documented in this file. See [standard-version](https://github.com/conventional-changelog/standard-version) for commit guidelines.
 
+## [5.1.0](https://github.com/MapColonies/retiler-new/compare/v5.0.0...v5.1.0) (2026-07-13)
+
+
+### Features
+
+* update-libraries ([#30](https://github.com/MapColonies/retiler-new/issues/30)) ([7441fee](https://github.com/MapColonies/retiler-new/commit/7441feea4192d19e8c9c6ec6095ebff1bc37a5be))
+
 ## [5.0.0](https://github.com/MapColonies/retiler-new/compare/v4.0.1...v5.0.0) (2026-06-24)
 
 
