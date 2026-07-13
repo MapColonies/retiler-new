@@ -1,9 +1,15 @@
-import { AxiosError, AxiosInstance } from 'axios';
-import jsLogger from '@map-colonies/js-logger';
+import type { AxiosError, AxiosInstance } from 'axios';
+import { jsLogger, type Logger } from '@map-colonies/js-logger';
 import { WmsMapProvider } from '../../../src/retiler/mapProvider/wms/wmsMapProvider';
-import { WmsConfig, WmsRequestParams } from '../../../src/retiler/mapProvider/wms/requestParams';
+import type { WmsConfig, WmsRequestParams } from '../../../src/retiler/mapProvider/wms/requestParams';
 
 jest.mock('axios');
+
+let logger: Logger;
+
+beforeAll(async () => {
+  logger = await jsLogger({ enabled: false });
+});
 
 describe('wmsMapProvider', () => {
   describe('#getMap', () => {
@@ -19,7 +25,7 @@ describe('wmsMapProvider', () => {
 
     it('should resolve into a buffer if the request has completed with wms version 1.1.1', async function () {
       const wmsConfig: WmsConfig = { version: '1.1.1', layers: 'someLayer', styles: 'someStyle' };
-      const wmsProv = new WmsMapProvider(mockedClient, jsLogger({ enabled: false }), 'http://url.com', 'image/png', wmsConfig);
+      const wmsProv = new WmsMapProvider(mockedClient, logger, 'http://url.com', 'image/png', wmsConfig);
 
       const response = { data: Buffer.from('test'), headers: { 'content-type': 'image/png' } };
       mockedClient.get.mockResolvedValue(response);
@@ -46,7 +52,7 @@ describe('wmsMapProvider', () => {
     it('should resolve into a buffer if the request has completed with wms version 1.3.0', async function () {
       const wmsConfig: WmsConfig = { version: '1.3.0', layers: 'someLayer', styles: 'someStyle' };
 
-      const wmsProv = new WmsMapProvider(mockedClient, jsLogger({ enabled: false }), 'http://url.com', 'image/png', wmsConfig);
+      const wmsProv = new WmsMapProvider(mockedClient, logger, 'http://url.com', 'image/png', wmsConfig);
 
       const response = { data: Buffer.from('test'), headers: { 'content-type': 'image/png' } };
       mockedClient.get.mockResolvedValue(response);
@@ -71,7 +77,7 @@ describe('wmsMapProvider', () => {
     });
 
     it('should throw an error if the request has failed', async function () {
-      const wmsProv = new WmsMapProvider(mockedClient, jsLogger({ enabled: false }), 'http://url.com', 'image/png', {
+      const wmsProv = new WmsMapProvider(mockedClient, logger, 'http://url.com', 'image/png', {
         version: '1.1.1',
         layers: '',
         styles: '',

@@ -1,9 +1,8 @@
 import { setTimeout as setTimeoutPromise } from 'node:timers/promises';
 import { Registry } from 'prom-client';
-import jsLogger from '@map-colonies/js-logger';
-import { PgBoss } from 'pg-boss';
+import { jsLogger, type Logger } from '@map-colonies/js-logger';
+import type { PgBoss } from 'pg-boss';
 import { serializeError } from 'serialize-error';
-import { type Tracer } from '@opentelemetry/api';
 import { PgBossJobQueueProvider } from '../../../src/retiler/jobQueueProvider/pgBossJobQueue';
 import { LONG_RUNNING_TEST } from '../../integration/helpers';
 
@@ -21,7 +20,10 @@ describe('PgBossJobQueueProvider', () => {
     fetch: jest.Mock;
   };
 
-  beforeAll(() => {
+  let logger: Logger;
+
+  beforeAll(async () => {
+    logger = await jsLogger({ enabled: false });
     pgbossMock = {
       on: jest.fn(),
       start: jest.fn(),
@@ -43,14 +45,7 @@ describe('PgBossJobQueueProvider', () => {
         ),
       startSpan: jest.fn(),
     };
-    provider = new PgBossJobQueueProvider(
-      pgbossMock as unknown as PgBoss,
-      jsLogger({ enabled: false }),
-      tracerMock,
-      'queue-name',
-      50,
-      new Registry()
-    );
+    provider = new PgBossJobQueueProvider(pgbossMock as unknown as PgBoss, logger, tracerMock, 'queue-name', 50, new Registry());
   });
 
   afterEach(function () {

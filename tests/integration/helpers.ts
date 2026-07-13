@@ -1,5 +1,5 @@
 import { setInterval as setIntervalPromise } from 'node:timers/promises';
-import { PgBoss, type JobWithMetadata } from 'pg-boss';
+import type { PgBoss, JobWithMetadata } from 'pg-boss';
 import sharp from 'sharp';
 
 const WAIT_FOR_JOB_INTERVAL_MS = 10;

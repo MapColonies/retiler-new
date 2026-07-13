@@ -1,6 +1,6 @@
 /* eslint-disable @typescript-eslint/naming-convention */ // due to client-s3
 import { S3Client } from '@aws-sdk/client-s3';
-import jsLogger from '@map-colonies/js-logger';
+import { jsLogger, type Logger } from '@map-colonies/js-logger';
 import { S3TilesStorage } from '../../../src/retiler/tilesStorageProvider/s3';
 
 // eslint-disable-next-line @typescript-eslint/no-unsafe-return
@@ -16,13 +16,19 @@ jest.mock('@aws-sdk/client-s3', () => ({
   })),
 }));
 
+let logger: Logger;
+
+beforeAll(async () => {
+  logger = await jsLogger({ enabled: false });
+});
+
 describe('S3TilesStorage', () => {
   let storage: S3TilesStorage;
   let mockedS3Client: jest.Mocked<S3Client>;
 
   beforeEach(function () {
     mockedS3Client = new S3Client({}) as jest.Mocked<S3Client>;
-    storage = new S3TilesStorage(mockedS3Client, jsLogger({ enabled: false }), 'test-bucket', { format: 'test/{z}/{x}/{y}.png', shouldFlipY: true });
+    storage = new S3TilesStorage(mockedS3Client, logger, 'test-bucket', { format: 'test/{z}/{x}/{y}.png', shouldFlipY: true });
   });
 
   afterEach(function () {

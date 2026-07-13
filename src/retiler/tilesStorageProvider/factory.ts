@@ -1,17 +1,15 @@
-import { createHash } from 'crypto';
+import { createHash } from 'node:crypto';
 import { S3Client } from '@aws-sdk/client-s3';
-import { Logger } from '@map-colonies/js-logger';
-import { FactoryFunction } from 'tsyringe';
-import { CleanupRegistry } from '@map-colonies/cleanup-registry';
-import { HttpRequest } from '@smithy/types';
-import { ConfigType } from '@src/common/config';
-import { validate } from '../../common/validation';
+import type { Logger } from '@map-colonies/js-logger';
+import type { FactoryFunction } from 'tsyringe';
+import type { CleanupRegistry } from '@map-colonies/cleanup-registry';
+import type { HttpRequest } from '@smithy/types';
+import type { ConfigType } from '@src/common/config';
 import { SERVICES } from '../../common/constants';
-import { TilesStorageProvider } from '../interfaces';
-import { StorageProviderConfig } from './interfaces';
+import type { TilesStorageProvider } from '../interfaces';
+import type { StorageProviderConfig } from './interfaces';
 import { S3TilesStorage } from './s3';
 import { FsTilesStorage } from './fs';
-import { TILES_STORAGE_PROVIDERS_SCHEMA } from './validation';
 
 interface Args {
   request: HttpRequest;
@@ -24,9 +22,8 @@ export const tilesStorageProvidersFactory: FactoryFunction<TilesStorageProvider[
   const storageProvidersConfig = config.get('app.tilesStorage.providers');
   const tilesStorageLayout = config.get('app.tilesStorage.layout');
 
-  const { isValid, errors } = validate<StorageProviderConfig[]>(storageProvidersConfig, TILES_STORAGE_PROVIDERS_SCHEMA);
-  if (!isValid) {
-    throw new Error(`invalid tiles storage providers configuration: ${JSON.stringify(errors)}`);
+  if (storageProvidersConfig.length === 0) {
+    throw new Error('invalid tiles storage providers configuration: at least one provider is required');
   }
 
   const s3ClientsMap = new Map<string, S3Client>();

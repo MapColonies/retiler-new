@@ -1,4 +1,4 @@
-import { MapSplitResult, TileWithBuffer, TileWithMetadata } from './types';
+import type { MapSplitResult, TileWithBuffer, TileWithMetadata } from './types';
 
 export interface JobQueueProvider {
   activeQueueName: string;

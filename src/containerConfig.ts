@@ -1,13 +1,15 @@
-import { DependencyContainer, Lifecycle, instancePerContainerCachingFactory } from 'tsyringe';
-import jsLogger, { Logger } from '@map-colonies/js-logger';
+import type { DependencyContainer } from 'tsyringe';
+import { Lifecycle, instancePerContainerCachingFactory } from 'tsyringe';
+import type { Logger } from '@map-colonies/js-logger';
+import { jsLogger } from '@map-colonies/js-logger';
 import { getOtelMixin } from '@map-colonies/telemetry';
-import { HealthCheck } from '@godaddy/terminus';
+import type { HealthCheck } from '@godaddy/terminus';
 import axios from 'axios';
 import { Registry } from 'prom-client';
 import { trace } from '@opentelemetry/api';
 import { CleanupRegistry } from '@map-colonies/cleanup-registry';
 import { DetilerClient } from '@map-colonies/detiler-client';
-import { PgBoss } from 'pg-boss';
+import type { PgBoss } from 'pg-boss';
 import {
   JOB_QUEUE_PROVIDER,
   MAP_PROVIDER,
@@ -27,9 +29,10 @@ import {
   ON_SIGNAL,
   HEALTHCHECK,
 } from './common/constants';
-import { InjectionObject, registerDependencies } from './common/dependencyRegistration';
+import type { InjectionObject } from './common/dependencyRegistration';
+import { registerDependencies } from './common/dependencyRegistration';
 import { getTracing } from './common/tracing';
-import { JobQueueProvider } from './retiler/interfaces';
+import type { JobQueueProvider } from './retiler/interfaces';
 import { PgBossJobQueueProvider } from './retiler/jobQueueProvider/pgBossJobQueue';
 import { getPgBossHealthCheckFunction, pgBossFactory } from './retiler/jobQueueProvider/pgbossFactory';
 import { ArcgisMapProvider } from './retiler/mapProvider/arcgis/arcgisMapProvider';
@@ -37,7 +40,8 @@ import { SharpMapSplitter } from './retiler/mapSplitterProvider/sharp';
 import { consumeAndProcessFactory } from './app';
 import { WmsMapProvider } from './retiler/mapProvider/wms/wmsMapProvider';
 import { tilesStorageProvidersFactory } from './retiler/tilesStorageProvider/factory';
-import { ConfigType, getConfig } from './common/config';
+import type { ConfigType } from './common/config';
+import { getConfig } from './common/config';
 
 export interface RegisterOptions {
   override?: InjectionObject<unknown>[];
@@ -49,19 +53,19 @@ export const registerExternalValues = async (options?: RegisterOptions): Promise
 
   try {
     const dependencies: InjectionObject<unknown>[] = [
+      { token: SERVICES.CONFIG, provider: { useValue: getConfig() } },
       {
         token: SERVICES.LOGGER,
         provider: {
-          useFactory: instancePerContainerCachingFactory((container) => {
-            const queueName = container.resolve<string>(QUEUE_NAME);
+          useFactory: instancePerContainerCachingFactory(async (container) => {
             const config = container.resolve<ConfigType>(SERVICES.CONFIG);
             const loggerConfig = config.get('telemetry.logger');
-            const logger = jsLogger({ ...loggerConfig, mixin: getOtelMixin(), base: { queue: queueName } });
-            const cleanupRegistryLogger = logger.child({ subComponent: 'cleanupRegistry' });
-            cleanupRegistry.on('itemFailed', (id, error, msg) => cleanupRegistryLogger.error({ msg, itemId: id, err: error }));
-            cleanupRegistry.on('finished', (status) => cleanupRegistryLogger.info({ msg: `cleanup registry finished cleanup`, status }));
-            return logger;
+            return jsLogger({ ...loggerConfig, mixin: getOtelMixin() });
           }),
+        },
+        postInjectionHook: async (deps: DependencyContainer): Promise<void> => {
+          const logger = await deps.resolve<Promise<Logger>>(SERVICES.LOGGER);
+          deps.register(SERVICES.LOGGER, { useValue: logger });
         },
       },
       {
@@ -76,7 +80,6 @@ export const registerExternalValues = async (options?: RegisterOptions): Promise
           cleanupRegistry.on('finished', (status) => cleanupRegistryLogger.info({ msg: `cleanup registry finished cleanup`, status }));
         },
       },
-      { token: SERVICES.CONFIG, provider: { useValue: getConfig() } },
       {
         token: SERVICES.TRACER,
         provider: {

@@ -1,4 +1,4 @@
-import { readFileSync } from 'fs';
+import { readFileSync } from 'node:fs';
 import { PgBoss, type ConstructorOptions } from 'pg-boss';
 import { type HealthCheck } from '@godaddy/terminus';
 import { type VectorRetilerSchemaType } from '../../common/config';

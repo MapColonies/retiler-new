@@ -1,17 +1,23 @@
-import { readFile } from 'fs/promises';
+import { readFile } from 'node:fs/promises';
 import sharp from 'sharp';
 import { faker } from '@faker-js/faker';
-import jsLogger from '@map-colonies/js-logger';
-import { Tile } from '@map-colonies/tile-calc';
+import { jsLogger, type Logger } from '@map-colonies/js-logger';
+import type { Tile } from '@map-colonies/tile-calc';
 import { SharpMapSplitter } from '../../../src/retiler/mapSplitterProvider/sharp';
 import { createBlankBuffer } from '../../integration/helpers';
+
+let logger: Logger;
+
+beforeAll(async () => {
+  logger = await jsLogger({ enabled: false });
+});
 
 describe('SharpMapSplitter', () => {
   describe('#splitMap', () => {
     let splitter: SharpMapSplitter;
 
     beforeEach(function () {
-      splitter = new SharpMapSplitter(jsLogger({ enabled: false }));
+      splitter = new SharpMapSplitter(logger);
     });
 
     afterEach(function () {

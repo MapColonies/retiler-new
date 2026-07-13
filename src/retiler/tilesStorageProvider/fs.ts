@@ -1,14 +1,14 @@
-import { join, dirname } from 'path';
-import { writeFile, mkdir, unlink } from 'fs/promises';
-import { existsSync } from 'fs';
-import { Logger } from '@map-colonies/js-logger';
-import { Tile } from '@map-colonies/tile-calc';
+import { join, dirname } from 'node:path';
+import { writeFile, mkdir, unlink } from 'node:fs/promises';
+import { existsSync } from 'node:fs';
+import type { Logger } from '@map-colonies/js-logger';
+import type { Tile } from '@map-colonies/tile-calc';
 import format from 'string-format';
 import { timerify } from '../../common/util';
-import { TilesStorageProvider } from '../interfaces';
-import { TileWithBuffer, TileWithMetadata } from '../types';
+import type { TilesStorageProvider } from '../interfaces';
+import type { TileWithBuffer, TileWithMetadata } from '../types';
 import { getFlippedY } from '../util';
-import { TileStoragLayout } from './interfaces';
+import type { TileStoragLayout } from './interfaces';
 import { FS_FILE_NOT_FOUND_ERROR_CODE } from './constants';
 
 export class FsTilesStorage implements TilesStorageProvider {

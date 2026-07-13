@@ -335,7 +335,7 @@ export class TileProcessor {
 
       return result;
     } catch (error) {
-      this.logger.error({ msg: 'an error occurred while pre processing, tile will be processed', error });
+      this.logger.error({ msg: 'an error occurred while pre processing, tile will be processed', err: error });
 
       result = { shouldSkipProcessing: false, reason: ProcessReason.ERROR_OCCURRED };
 
@@ -362,7 +362,7 @@ export class TileProcessor {
         { status: 'rendered', state: tile.state, timestamp }
       );
     } catch (error) {
-      this.logger.error({ msg: 'an error occurred while post processing, skipping details set', error });
+      this.logger.error({ msg: 'an error occurred while post processing, skipping details set', err: error });
       if (!this.detilerProceedOnFailure) {
         throw error;
       }
