@@ -1129,7 +1129,9 @@ describe('retiler', function () {
 
         const consumePromise = consumeAndProcessFactory(container)();
 
-        await setTimeoutPromise(5);
+        while (!getMapScope.isDone()) {
+          await setTimeoutPromise(5);
+        }
         await provider.stopQueue();
 
         await expect(consumePromise).resolves.not.toThrow();
