@@ -1,5 +1,5 @@
-import type { TracingOptions } from '@map-colonies/telemetry';
-import { Tracing } from '@map-colonies/telemetry';
+import type { TracingOptions } from '@map-colonies/tracing';
+import { Tracing } from '@map-colonies/tracing';
 import { IGNORED_INCOMING_TRACE_ROUTES, IGNORED_OUTGOING_TRACE_ROUTES } from './constants';
 
 let tracing: Tracing | undefined;

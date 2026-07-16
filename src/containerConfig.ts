@@ -2,7 +2,7 @@ import type { DependencyContainer } from 'tsyringe';
 import { Lifecycle, instancePerContainerCachingFactory } from 'tsyringe';
 import type { Logger } from '@map-colonies/js-logger';
 import { jsLogger } from '@map-colonies/js-logger';
-import { getOtelMixin } from '@map-colonies/telemetry';
+import { getOtelMixin } from '@map-colonies/tracing-utils';
 import type { HealthCheck } from '@godaddy/terminus';
 import axios from 'axios';
 import { Registry } from 'prom-client';
