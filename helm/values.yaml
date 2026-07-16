@@ -46,7 +46,7 @@ caPath: '/usr/local/share/ca-certificates'
 caKey: 'ca.crt'
 
 image:
-  repository: retiler
+  repository: retiler-new
   # If commented, appVersion will be taken. See: _helpers.tpl
   # tag: 'latest'
   pullPolicy: IfNotPresent

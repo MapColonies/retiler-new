@@ -6,7 +6,7 @@ import type { Registry } from 'prom-client';
 import type { Logger } from '@map-colonies/js-logger';
 import type { DependencyContainer } from 'tsyringe';
 import type { CleanupRegistry } from '@map-colonies/cleanup-registry';
-import { collectMetricsExpressMiddleware } from '@map-colonies/telemetry/prom-metrics';
+import { collectMetricsExpressMiddleware } from '@map-colonies/prometheus';
 import type { HealthCheck } from '@godaddy/terminus';
 import { createTerminus } from '@godaddy/terminus';
 import { CONSUME_AND_PROCESS_FACTORY, ExitCodes, HEALTHCHECK, METRICS_REGISTRY, ON_SIGNAL, SERVICES } from './common/constants';
