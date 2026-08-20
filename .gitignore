@@ -114,3 +114,9 @@ reports
 # config
 local.json
 myvalues.yaml
+
+# Local planning documents
+planning/
+
+# experiment scratch (generated per run)
+experiments/*/.scratch/

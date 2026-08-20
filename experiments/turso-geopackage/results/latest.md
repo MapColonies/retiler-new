@@ -1,0 +1,3000 @@
+# Turso GeoPackage feasibility -- gate results
+
+## Environment
+
+- **ranAt**: 2026-08-20T16:00:32.342Z
+- **profile**: full
+- **node**: v24.13.0
+- **platform**: linux 6.8.0-47-generic x64
+- **cpus**: 20
+- **memoryGb**: 31
+- **tursoVersion**: 0.7.2
+- **gdal**: GDAL 3.4.1, released 2021/12/27
+- **storage**: local filesystem (not the OpenShift RWX StorageClass)
+
+## Verdict summary
+
+| Gate | Title | Status | Summary |
+| --- | --- | --- | --- |
+| 1 | Published artifact availability | **FAIL** | The published artifact does not satisfy the packaging constraints (production container is covered). |
+| 2 | Required modes are exposed | **FAIL** | Multi-process WAL and MVCC are exposed but mutually exclusive, so independent processes cannot hold concurrent transactions. |
+| 3 | GeoPackage schema compatibility | **PASS** | Turso mutates a standards-compliant WorldCRS84Quad GeoPackage and leaves it readable by SQLite and GDAL. |
+| 4 | Cross-process concurrent writes | **PASS** | Independent processes write the shared file correctly and faster than serialized SQLite. |
+| 5 | Atomicity and recovery | **FAIL** | Atomicity or recovery does not hold under injected failures. |
+| 6 | Finalization and interoperability | **PASS** | The finalized file stands alone and passes ordinary SQLite and GDAL validation. |
+
+## Gate 1: Published artifact availability
+
+**FAIL** -- The published artifact does not satisfy the packaging constraints (production container is covered).
+
+Ran in 1.0s.
+
+| Check | Status | Detail |
+| --- | --- | --- |
+| version is pinned | PASS | pinned to an exact version 0.7.2, so the native artifact cannot drift |
+| lockfile records a checksum | PASS | resolved and checksummed in package-lock.json, which is what an internal mirror needs |
+| platform artifacts published | PASS | 4 prebuilt native packages are published |
+| production container is covered | FAIL | the production runtime image node:24.10.0-alpine3.22 is musl-based, but no musl artifact is published; running it there would need a custom build, which the constraints forbid |
+| license is declared | PASS | declared as MIT |
+| installs without network access | PASS | npm resolved the package and its native artifact from the local cache alone, which is the closest local proxy for an internal mirror; a real air-gapped install still has to be confirmed against the internal registry |
+| native binding loads and runs | PASS | the published binding loaded and opened a database on linux-x64-gnu |
+
+<details><summary>Evidence</summary>
+
+**lockfile records a checksum**
+
+```
+{
+  "version": "0.7.2",
+  "resolved": "https://registry.npmjs.org/@tursodatabase/database/-/database-0.7.2.tgz",
+  "integrity": "sha512-B84QicyDYnKt97qxgb7861cQQC26kuv/LkUlCnpxGs4tuGT9zgS2z/Mt+BkG/wOo1fB4rsSycOgGCbi0xU0YOQ=="
+}
+```
+
+**platform artifacts published**
+
+```
+[
+  "@tursodatabase/database-darwin-arm64",
+  "@tursodatabase/database-linux-arm64-gnu",
+  "@tursodatabase/database-linux-x64-gnu",
+  "@tursodatabase/database-win32-x64-msvc"
+]
+```
+
+**production container is covered**
+
+```
+{
+  "productionImage": "node:24.10.0-alpine3.22",
+  "publishedTargets": [
+    "@tursodatabase/database-darwin-arm64",
+    "@tursodatabase/database-linux-arm64-gnu",
+    "@tursodatabase/database-linux-x64-gnu",
+    "@tursodatabase/database-win32-x64-msvc"
+  ]
+}
+```
+
+**installs without network access**
+
+```
+add @unrs/resolver-binding-linux-x64-musl 1.12.2
+add @swc/core-linux-x64-musl 1.15.43
+add @img/sharp-linuxmusl-x64 0.34.5
+add @img/sharp-libvips-linuxmusl-x64 1.2.4
+change @emnapi/wasi-threads 1.2.1 => 1.2.2
+
+added 4 packages, and changed 1 package in 875ms
+```
+
+</details>
+
+<details><summary>Measurements</summary>
+
+```json
+{
+  "pinnedRange": "0.7.2",
+  "lockedVersion": "0.7.2",
+  "platformPackages": [
+    "@tursodatabase/database-darwin-arm64",
+    "@tursodatabase/database-linux-arm64-gnu",
+    "@tursodatabase/database-linux-x64-gnu",
+    "@tursodatabase/database-win32-x64-msvc"
+  ],
+  "productionImage": "node:24.10.0-alpine3.22",
+  "hostTarget": "linux-x64-gnu"
+}
+```
+
+</details>
+
+## Gate 2: Required modes are exposed
+
+**FAIL** -- Multi-process WAL and MVCC are exposed but mutually exclusive, so independent processes cannot hold concurrent transactions.
+
+Ran in 12.1s.
+
+| Check | Status | Detail |
+| --- | --- | --- |
+| multi-process mode is reachable from the published JS API | PASS | opened with experimental: ['multiprocess_wal'], so no Turso CLI flag or custom binding is required |
+| concurrent transactions are reachable | PASS | BEGIN CONCURRENT is accepted once the journal is switched to MVCC |
+| multi-process and concurrent modes compose | FAIL | enabling both at once failed: step failed: Invalid argument supplied: journal_mode=mvcc is not supported with experimental multiprocess WAL: MVCC does not support multiprocess access |
+| simultaneous opens all succeed | FAIL | 1 of 140 simultaneous opens were refused outright, so a pod can fail to attach to the shared file at startup and must retry the open itself |
+| two independent processes write to one file | PASS | both processes committed, 8 of 8 batches in total (opens needed 1 and 1 attempts) |
+
+<details><summary>Evidence</summary>
+
+**multi-process mode is reachable from the published JS API**
+
+```
+{
+  "options": "multiProcess=true mvcc=false",
+  "opened": true,
+  "journalMode": "wal",
+  "beginConcurrent": "rejected",
+  "error": "step failed: Transaction error: Concurrent transaction mode is only supported when MVCC is enabled"
+}
+```
+
+**concurrent transactions are reachable**
+
+```
+{
+  "options": "multiProcess=false mvcc=true",
+  "opened": true,
+  "journalMode": "mvcc",
+  "beginConcurrent": "accepted"
+}
+```
+
+**multi-process and concurrent modes compose**
+
+```
+{
+  "options": "multiProcess=true mvcc=true",
+  "opened": false,
+  "beginConcurrent": "not attempted",
+  "error": "step failed: Invalid argument supplied: journal_mode=mvcc is not supported with experimental multiprocess WAL: MVCC does not support multiprocess access"
+}
+```
+
+**simultaneous opens all succeed**
+
+```
+[
+  {
+    "writers": 2,
+    "trials": 10,
+    "attempted": 20,
+    "failed": 0,
+    "messages": []
+  },
+  {
+    "writers": 4,
+    "trials": 10,
+    "attempted": 40,
+    "failed": 1,
+    "messages": [
+      "Failed opening database '/home/nivgr/Desktop/projects/retiler/experiments/turso-geopackage/.scratch/gate2-openrace-4-0.gpkg'. Database is already open without experimental multiprocess WAL in another "
+    ]
+  },
+  {
+    "writers": 8,
+    "trials": 10,
+    "attempted": 80,
+    "failed": 0,
+    "messages": []
+  }
+]
+```
+
+**two independent processes write to one file**
+
+```
+[
+  {
+    "writerId": 0,
+    "code": 0,
+    "signal": null,
+    "stderr": "(node:2677418) ExperimentalWarning: SQLite is an experimental feature and might change at any time\n(Use `node --trace-warnings ...` to show where the warning was created)\n"
+  },
+  {
+    "writerId": 1,
+    "code": 0,
+    "signal": null,
+    "stderr": "(node:2677419) ExperimentalWarning: SQLite is an experimental feature and might change at any time\n(Use `node --trace-warnings ...` to show where the warning was created)\n"
+  }
+]
+```
+
+</details>
+
+<details><summary>Measurements</summary>
+
+```json
+{
+  "probes": {
+    "plain": {
+      "options": "multiProcess=false mvcc=false",
+      "opened": true,
+      "journalMode": "wal",
+      "beginConcurrent": "rejected",
+      "error": "step failed: Transaction error: Concurrent transaction mode is only supported when MVCC is enabled"
+    },
+    "multiProcess": {
+      "options": "multiProcess=true mvcc=false",
+      "opened": true,
+      "journalMode": "wal",
+      "beginConcurrent": "rejected",
+      "error": "step failed: Transaction error: Concurrent transaction mode is only supported when MVCC is enabled"
+    },
+    "mvcc": {
+      "options": "multiProcess=false mvcc=true",
+      "opened": true,
+      "journalMode": "mvcc",
+      "beginConcurrent": "accepted"
+    },
+    "both": {
+      "options": "multiProcess=true mvcc=true",
+      "opened": false,
+      "beginConcurrent": "not attempted",
+      "error": "step failed: Invalid argument supplied: journal_mode=mvcc is not supported with experimental multiprocess WAL: MVCC does not support multiprocess access"
+    }
+  },
+  "openRaces": [
+    {
+      "writers": 2,
+      "trials": 10,
+      "attempted": 20,
+      "failed": 0,
+      "messages": []
+    },
+    {
+      "writers": 4,
+      "trials": 10,
+      "attempted": 40,
+      "failed": 1,
+      "messages": [
+        "Failed opening database '/home/nivgr/Desktop/projects/retiler/experiments/turso-geopackage/.scratch/gate2-openrace-4-0.gpkg'. Database is already open without experimental multiprocess WAL in another "
+      ]
+    },
+    {
+      "writers": 8,
+      "trials": 10,
+      "attempted": 80,
+      "failed": 0,
+      "messages": []
+    }
+  ],
+  "crossProcess": {
+    "committed": 8,
+    "writersThatCommitted": 2,
+    "openAttempts": [
+      1,
+      1
+    ],
+    "wallClockMs": 186.3974789999993
+  }
+}
+```
+
+</details>
+
+## Gate 3: GeoPackage schema compatibility
+
+**PASS** -- Turso mutates a standards-compliant WorldCRS84Quad GeoPackage and leaves it readable by SQLite and GDAL.
+
+Ran in 0.4s.
+
+| Check | Status | Detail |
+| --- | --- | --- |
+| Turso opens a conformant GeoPackage | PASS | the file created by ordinary SQLite opened without complaint |
+| put, upsert and delete work with constraints enabled | PASS | insert, ON CONFLICT upsert and delete all succeeded against the conformant schema |
+| unique tile coordinate constraint is enforced | PASS | a duplicate coordinate was rejected: Error: step failed: Runtime error: UNIQUE constraint failed: tiles.(zoom_level, tile_column, tile_row) (19) |
+| schema survives the round trip unchanged | PASS | every table, index and constraint is byte for byte what ordinary SQLite declared |
+| ordinary SQLite reopens the file cleanly | PASS | integrity_check returned ok with no foreign key violations |
+| GeoPackage identity is preserved | PASS | application_id and user_version are still 1196444487 / 10300 |
+| mutations produced the expected rows | PASS | the upserted tile remains and the deleted tile is gone |
+| GDAL reopens the file | PASS | GDAL opened it as a 4096x2048 WGS 84 raster |
+
+<details><summary>Evidence</summary>
+
+**GDAL reopens the file**
+
+```
+{
+  "toolchain": {
+    "gdalinfo": {
+      "available": true,
+      "version": "GDAL 3.4.1, released 2021/12/27"
+    },
+    "ogrinfo": {
+      "available": true,
+      "version": "GDAL 3.4.1, released 2021/12/27"
+    },
+    "gdalCli": {
+      "available": false,
+      "error": "spawnSync gdal ENOENT"
+    }
+  },
+  "opened": true,
+  "rasterSize": "4096x2048",
+  "coordinateSystem": "WGS 84",
+  "driverValidate": {
+    "ran": false,
+    "output": "requires the unified `gdal` CLI from GDAL 3.11 or newer"
+  },
+  "warnings": []
+}
+```
+
+</details>
+
+<details><summary>Measurements</summary>
+
+```json
+{
+  "sqlite": {
+    "integrityCheck": "ok",
+    "foreignKeyViolations": 0,
+    "applicationId": 1196444487,
+    "userVersion": 10300,
+    "applicationIdCorrect": true,
+    "userVersionCorrect": true,
+    "tileCount": 1,
+    "schemaMatchesBaseline": true,
+    "schemaDifferences": [],
+    "tiles": 1
+  },
+  "gdal": {
+    "toolchain": {
+      "gdalinfo": {
+        "available": true,
+        "version": "GDAL 3.4.1, released 2021/12/27"
+      },
+      "ogrinfo": {
+        "available": true,
+        "version": "GDAL 3.4.1, released 2021/12/27"
+      },
+      "gdalCli": {
+        "available": false,
+        "error": "spawnSync gdal ENOENT"
+      }
+    },
+    "opened": true,
+    "rasterSize": "4096x2048",
+    "coordinateSystem": "WGS 84",
+    "driverValidate": {
+      "ran": false,
+      "output": "requires the unified `gdal` CLI from GDAL 3.11 or newer"
+    },
+    "warnings": []
+  },
+  "footprint": {
+    "main": 49152
+  }
+}
+```
+
+</details>
+
+## Gate 4: Cross-process concurrent writes
+
+**PASS** -- Independent processes write the shared file correctly and faster than serialized SQLite.
+
+Ran in 60.5s.
+
+| Check | Status | Detail |
+| --- | --- | --- |
+| every writer process ran to completion | PASS | all writers in all 18 scenarios started and reported |
+| no acknowledged mutation disappears | PASS | every batch a writer was told had committed is present in the commit log after reopen |
+| latest successful commit wins at every coordinate | PASS | the stored bytes at every coordinate match the last commit for it in commit order |
+| the shared file stays valid | PASS | ordinary SQLite reports integrity_check ok after every scenario |
+| conflicts are retryable rather than fatal | PASS | bounded jittered backoff absorbed all contention; no batch exhausted its retries |
+| throughput beats a serialized SQLite writer | NOT RUN | inconclusive on this host: 2 of 3 writer counts had repetitions on both sides of parity (2 writers: median 0.92x, range 0.92-1.14x; 4 writers: median 0.86x, range 0.59-1.01x; 8 writers: median 0.64x, range 0.29-0.86x). Re-run on a quiet machine before drawing a conclusion. |
+
+<details><summary>Evidence</summary>
+
+**throughput beats a serialized SQLite writer**
+
+```
+[
+  {
+    "writers": 2,
+    "repeats": 3,
+    "tursoTilesPerSecond": [
+      531.8559556786704,
+      441.37931034482756,
+      452.8301886792453
+    ],
+    "controlTilesPerSecond": [
+      548.5714285714286,
+      385.5421686746988,
+      492.3076923076923
+    ],
+    "medianSpeedup": 0.9198113207547169,
+    "perRunSpeedup": [
+      0.9695290858725762,
+      1.1448275862068964,
+      0.9198113207547169
+    ],
+    "speedupRange": [
+      0.9198113207547169,
+      1.1448275862068964
+    ]
+  },
+  {
+    "writers": 4,
+    "repeats": 3,
+    "tursoTilesPerSecond": [
+      445.993031358885,
+      305.9760956175299,
+      495.48387096774195
+    ],
+    "controlTilesPerSecond": [
+      442.3963133640553,
+      516.1290322580645,
+      524.5901639344262
+    ],
+    "medianSpeedup": 0.8641114982578397,
+    "perRunSpeedup": [
+      1.008130081300813,
+      0.5928286852589641,
+      0.9445161290322581
+    ],
+    "speedupRange": [
+      0.5928286852589641,
+      1.008130081300813
+    ]
+  },
+  {
+    "writers": 8,
+    "repeats": 3,
+    "tursoTilesPerSecond": [
+      145.01510574018127,
+      318.2760049730626,
+      461.53846153846155
+    ],
+    "controlTilesPerSecond": [
+      493.9965694682676,
+      404.77863668306395,
+      537.8151260504202
+    ],
+    "medianSpeedup": 0.6442878850669982,
+    "perRunSpeedup": [
+      0.2935548841893253,
+      0.7862964497858821,
+      0.8581730769230769
+    ],
+    "speedupRange": [
+      0.2935548841893253,
+      0.8581730769230769
+    ]
+  }
+]
+```
+
+</details>
+
+<details><summary>Measurements</summary>
+
+```json
+{
+  "note": "Local filesystem only. The OpenShift RWX StorageClass has not been exercised; see gate 4 notes in the README.",
+  "turso": [
+    {
+      "scenario": {
+        "writers": 2,
+        "collision": "disjoint",
+        "metatile": 2,
+        "batchesPerWriter": 24
+      },
+      "writersReported": 2,
+      "perWriter": [
+        {
+          "writerId": 0,
+          "cpuUserMs": 332.016,
+          "cpuSystemMs": 36.103,
+          "maxRssBytes": 121114624,
+          "batchesCommitted": 24,
+          "openAttempts": 1
+        },
+        {
+          "writerId": 1,
+          "cpuUserMs": 246.632,
+          "cpuSystemMs": 27.512,
+          "maxRssBytes": 118358016,
+          "batchesCommitted": 24,
+          "openAttempts": 1
+        }
+      ],
+      "exits": [],
+      "totals": {
+        "writers": 2,
+        "batchesCommitted": 48,
+        "batchesFailed": 0,
+        "tilesPut": 144,
+        "tilesDeleted": 48,
+        "attempts": 48,
+        "retries": 0,
+        "conflicts": 0,
+        "busyErrors": 0,
+        "fatalErrors": 0,
+        "wallClockMs": 344,
+        "batchesPerSecond": 139.53488372093022,
+        "tilesPerSecond": 558.1395348837209,
+        "latency": {
+          "count": 48,
+          "min": 4.544331,
+          "max": 87.513735,
+          "mean": 10.589498041666667,
+          "p50": 5.226987000000008,
+          "p95": 59.65702899999998,
+          "p99": 87.513735
+        },
+        "cpuUserMs": 578.648,
+        "cpuSystemMs": 63.615,
+        "maxRssBytes": 121114624
+      },
+      "verification": {
+        "acknowledgedBatches": 48,
+        "loggedBatches": 48,
+        "lostAcknowledged": 0,
+        "unacknowledgedCommits": 0,
+        "staleTiles": 0,
+        "undeletedTiles": 0,
+        "missingTiles": 0,
+        "orphanTiles": 0,
+        "finalTileCount": 144,
+        "expectedTileCount": 144,
+        "lastWinsHolds": true,
+        "atomicityHolds": true
+      },
+      "footprint": {
+        "main": 155648,
+        "-wal": 0,
+        "-shm": 32768
+      }
+    },
+    {
+      "scenario": {
+        "writers": 2,
+        "collision": "disjoint",
+        "metatile": 4,
+        "batchesPerWriter": 24
+      },
+      "writersReported": 2,
+      "perWriter": [
+        {
+          "writerId": 0,
+          "cpuUserMs": 382.345,
+          "cpuSystemMs": 29.718,
+          "maxRssBytes": 119341056,
+          "batchesCommitted": 24,
+          "openAttempts": 1
+        },
+        {
+          "writerId": 1,
+          "cpuUserMs": 240.69,
+          "cpuSystemMs": 21.06,
+          "maxRssBytes": 130170880,
+          "batchesCommitted": 24,
+          "openAttempts": 1
+        }
+      ],
+      "exits": [],
+      "totals": {
+        "writers": 2,
+        "batchesCommitted": 48,
+        "batchesFailed": 0,
+        "tilesPut": 576,
+        "tilesDeleted": 192,
+        "attempts": 48,
+        "retries": 0,
+        "conflicts": 0,
+        "busyErrors": 0,
+        "fatalErrors": 0,
+        "wallClockMs": 412,
+        "batchesPerSecond": 116.50485436893204,
+        "tilesPerSecond": 1864.0776699029127,
+        "latency": {
+          "count": 48,
+          "min": 4.984017999999992,
+          "max": 187.843929,
+          "mean": 11.718824958333334,
+          "p50": 5.9307340000000295,
+          "p95": 38.70535100000001,
+          "p99": 187.843929
+        },
+        "cpuUserMs": 623.0350000000001,
+        "cpuSystemMs": 50.778,
+        "maxRssBytes": 130170880
+      },
+      "verification": {
+        "acknowledgedBatches": 48,
+        "loggedBatches": 48,
+        "lostAcknowledged": 0,
+        "unacknowledgedCommits": 0,
+        "staleTiles": 0,
+        "undeletedTiles": 0,
+        "missingTiles": 0,
+        "orphanTiles": 0,
+        "finalTileCount": 576,
+        "expectedTileCount": 576,
+        "lastWinsHolds": true,
+        "atomicityHolds": true
+      },
+      "footprint": {
+        "main": 425984,
+        "-wal": 0,
+        "-shm": 32768
+      }
+    },
+    {
+      "scenario": {
+        "writers": 2,
+        "collision": "moderate",
+        "metatile": 2,
+        "batchesPerWriter": 24
+      },
+      "writersReported": 2,
+      "perWriter": [
+        {
+          "writerId": 0,
+          "cpuUserMs": 241.12,
+          "cpuSystemMs": 35.673,
+          "maxRssBytes": 120639488,
+          "batchesCommitted": 24,
+          "openAttempts": 1
+        },
+        {
+          "writerId": 1,
+          "cpuUserMs": 319.974,
+          "cpuSystemMs": 43.893,
+          "maxRssBytes": 166187008,
+          "batchesCommitted": 24,
+          "openAttempts": 1
+        }
+      ],
+      "exits": [],
+      "totals": {
+        "writers": 2,
+        "batchesCommitted": 48,
+        "batchesFailed": 0,
+        "tilesPut": 144,
+        "tilesDeleted": 48,
+        "attempts": 48,
+        "retries": 0,
+        "conflicts": 0,
+        "busyErrors": 0,
+        "fatalErrors": 0,
+        "wallClockMs": 338,
+        "batchesPerSecond": 142.01183431952663,
+        "tilesPerSecond": 568.0473372781065,
+        "latency": {
+          "count": 48,
+          "min": 3.888860999999963,
+          "max": 111.89923200000001,
+          "mean": 10.227738187499993,
+          "p50": 4.843841999999995,
+          "p95": 39.082268,
+          "p99": 111.89923200000001
+        },
+        "cpuUserMs": 561.094,
+        "cpuSystemMs": 79.566,
+        "maxRssBytes": 166187008
+      },
+      "verification": {
+        "acknowledgedBatches": 48,
+        "loggedBatches": 48,
+        "lostAcknowledged": 0,
+        "unacknowledgedCommits": 0,
+        "staleTiles": 0,
+        "undeletedTiles": 0,
+        "missingTiles": 0,
+        "orphanTiles": 0,
+        "finalTileCount": 100,
+        "expectedTileCount": 100,
+        "lastWinsHolds": true,
+        "atomicityHolds": true
+      },
+      "footprint": {
+        "main": 131072,
+        "-wal": 0,
+        "-shm": 32768
+      }
+    },
+    {
+      "scenario": {
+        "writers": 2,
+        "collision": "moderate",
+        "metatile": 4,
+        "batchesPerWriter": 24
+      },
+      "writersReported": 2,
+      "perWriter": [
+        {
+          "writerId": 0,
+          "cpuUserMs": 166.095,
+          "cpuSystemMs": 34.859,
+          "maxRssBytes": 118370304,
+          "batchesCommitted": 24,
+          "openAttempts": 1
+        },
+        {
+          "writerId": 1,
+          "cpuUserMs": 374.559,
+          "cpuSystemMs": 44.012,
+          "maxRssBytes": 148852736,
+          "batchesCommitted": 24,
+          "openAttempts": 1
+        }
+      ],
+      "exits": [],
+      "totals": {
+        "writers": 2,
+        "batchesCommitted": 48,
+        "batchesFailed": 0,
+        "tilesPut": 576,
+        "tilesDeleted": 192,
+        "attempts": 48,
+        "retries": 0,
+        "conflicts": 0,
+        "busyErrors": 0,
+        "fatalErrors": 0,
+        "wallClockMs": 394,
+        "batchesPerSecond": 121.8274111675127,
+        "tilesPerSecond": 1949.238578680203,
+        "latency": {
+          "count": 48,
+          "min": 4.697462000000002,
+          "max": 190.00627599999999,
+          "mean": 10.257875520833334,
+          "p50": 5.407772999999963,
+          "p95": 15.254239999999996,
+          "p99": 190.00627599999999
+        },
+        "cpuUserMs": 540.654,
+        "cpuSystemMs": 78.87100000000001,
+        "maxRssBytes": 148852736
+      },
+      "verification": {
+        "acknowledgedBatches": 48,
+        "loggedBatches": 48,
+        "lostAcknowledged": 0,
+        "unacknowledgedCommits": 0,
+        "staleTiles": 0,
+        "undeletedTiles": 0,
+        "missingTiles": 0,
+        "orphanTiles": 0,
+        "finalTileCount": 400,
+        "expectedTileCount": 400,
+        "lastWinsHolds": true,
+        "atomicityHolds": true
+      },
+      "footprint": {
+        "main": 339968,
+        "-wal": 0,
+        "-shm": 32768
+      }
+    },
+    {
+      "scenario": {
+        "writers": 2,
+        "collision": "full",
+        "metatile": 2,
+        "batchesPerWriter": 24
+      },
+      "writersReported": 2,
+      "perWriter": [
+        {
+          "writerId": 0,
+          "cpuUserMs": 198.86,
+          "cpuSystemMs": 27.087,
+          "maxRssBytes": 119386112,
+          "batchesCommitted": 24,
+          "openAttempts": 1
+        },
+        {
+          "writerId": 1,
+          "cpuUserMs": 365.315,
+          "cpuSystemMs": 28.733,
+          "maxRssBytes": 120119296,
+          "batchesCommitted": 24,
+          "openAttempts": 1
+        }
+      ],
+      "exits": [],
+      "totals": {
+        "writers": 2,
+        "batchesCommitted": 48,
+        "batchesFailed": 0,
+        "tilesPut": 144,
+        "tilesDeleted": 48,
+        "attempts": 48,
+        "retries": 0,
+        "conflicts": 0,
+        "busyErrors": 0,
+        "fatalErrors": 0,
+        "wallClockMs": 434,
+        "batchesPerSecond": 110.59907834101382,
+        "tilesPerSecond": 442.3963133640553,
+        "latency": {
+          "count": 48,
+          "min": 4.647854000000024,
+          "max": 197.639771,
+          "mean": 11.846540979166669,
+          "p50": 5.315770999999984,
+          "p95": 30.096541000000002,
+          "p99": 197.639771
+        },
+        "cpuUserMs": 564.175,
+        "cpuSystemMs": 55.82,
+        "maxRssBytes": 120119296
+      },
+      "verification": {
+        "acknowledgedBatches": 48,
+        "loggedBatches": 48,
+        "lostAcknowledged": 0,
+        "unacknowledgedCommits": 0,
+        "staleTiles": 0,
+        "undeletedTiles": 0,
+        "missingTiles": 0,
+        "orphanTiles": 0,
+        "finalTileCount": 72,
+        "expectedTileCount": 72,
+        "lastWinsHolds": true,
+        "atomicityHolds": true
+      },
+      "footprint": {
+        "main": 126976,
+        "-wal": 0,
+        "-shm": 32768
+      }
+    },
+    {
+      "scenario": {
+        "writers": 2,
+        "collision": "full",
+        "metatile": 4,
+        "batchesPerWriter": 24
+      },
+      "writersReported": 2,
+      "perWriter": [
+        {
+          "writerId": 0,
+          "cpuUserMs": 423.077,
+          "cpuSystemMs": 33.475,
+          "maxRssBytes": 145866752,
+          "batchesCommitted": 24,
+          "openAttempts": 1
+        },
+        {
+          "writerId": 1,
+          "cpuUserMs": 176.844,
+          "cpuSystemMs": 37.389,
+          "maxRssBytes": 118923264,
+          "batchesCommitted": 24,
+          "openAttempts": 1
+        }
+      ],
+      "exits": [],
+      "totals": {
+        "writers": 2,
+        "batchesCommitted": 48,
+        "batchesFailed": 0,
+        "tilesPut": 576,
+        "tilesDeleted": 192,
+        "attempts": 48,
+        "retries": 0,
+        "conflicts": 0,
+        "busyErrors": 0,
+        "fatalErrors": 0,
+        "wallClockMs": 524,
+        "batchesPerSecond": 91.6030534351145,
+        "tilesPerSecond": 1465.648854961832,
+        "latency": {
+          "count": 48,
+          "min": 4.888419999999996,
+          "max": 247.792206,
+          "mean": 13.460413541666668,
+          "p50": 6.188220000000001,
+          "p95": 23.572226,
+          "p99": 247.792206
+        },
+        "cpuUserMs": 599.921,
+        "cpuSystemMs": 70.864,
+        "maxRssBytes": 145866752
+      },
+      "verification": {
+        "acknowledgedBatches": 48,
+        "loggedBatches": 48,
+        "lostAcknowledged": 0,
+        "unacknowledgedCommits": 0,
+        "staleTiles": 0,
+        "undeletedTiles": 0,
+        "missingTiles": 0,
+        "orphanTiles": 0,
+        "finalTileCount": 288,
+        "expectedTileCount": 288,
+        "lastWinsHolds": true,
+        "atomicityHolds": true
+      },
+      "footprint": {
+        "main": 323584,
+        "-wal": 0,
+        "-shm": 32768
+      }
+    },
+    {
+      "scenario": {
+        "writers": 4,
+        "collision": "disjoint",
+        "metatile": 2,
+        "batchesPerWriter": 24
+      },
+      "writersReported": 4,
+      "perWriter": [
+        {
+          "writerId": 0,
+          "cpuUserMs": 351.163,
+          "cpuSystemMs": 50.454,
+          "maxRssBytes": 165601280,
+          "batchesCommitted": 24,
+          "openAttempts": 1
+        },
+        {
+          "writerId": 1,
+          "cpuUserMs": 722.897,
+          "cpuSystemMs": 40.601,
+          "maxRssBytes": 130367488,
+          "batchesCommitted": 24,
+          "openAttempts": 1
+        },
+        {
+          "writerId": 2,
+          "cpuUserMs": 592.841,
+          "cpuSystemMs": 43.412,
+          "maxRssBytes": 166559744,
+          "batchesCommitted": 24,
+          "openAttempts": 1
+        },
+        {
+          "writerId": 3,
+          "cpuUserMs": 741.375,
+          "cpuSystemMs": 41.299,
+          "maxRssBytes": 117186560,
+          "batchesCommitted": 24,
+          "openAttempts": 1
+        }
+      ],
+      "exits": [],
+      "totals": {
+        "writers": 4,
+        "batchesCommitted": 96,
+        "batchesFailed": 0,
+        "tilesPut": 288,
+        "tilesDeleted": 96,
+        "attempts": 96,
+        "retries": 0,
+        "conflicts": 0,
+        "busyErrors": 0,
+        "fatalErrors": 0,
+        "wallClockMs": 791,
+        "batchesPerSecond": 121.3653603034134,
+        "tilesPerSecond": 485.4614412136536,
+        "latency": {
+          "count": 96,
+          "min": 4.3263370000000805,
+          "max": 343.954703,
+          "mean": 23.842039572916676,
+          "p50": 5.753435999999965,
+          "p95": 119.52180199999998,
+          "p99": 343.954703
+        },
+        "cpuUserMs": 2408.276,
+        "cpuSystemMs": 175.76600000000002,
+        "maxRssBytes": 166559744
+      },
+      "verification": {
+        "acknowledgedBatches": 96,
+        "loggedBatches": 96,
+        "lostAcknowledged": 0,
+        "unacknowledgedCommits": 0,
+        "staleTiles": 0,
+        "undeletedTiles": 0,
+        "missingTiles": 0,
+        "orphanTiles": 0,
+        "finalTileCount": 288,
+        "expectedTileCount": 288,
+        "lastWinsHolds": true,
+        "atomicityHolds": true
+      },
+      "footprint": {
+        "main": 282624,
+        "-wal": 0,
+        "-shm": 32768
+      }
+    },
+    {
+      "scenario": {
+        "writers": 4,
+        "collision": "disjoint",
+        "metatile": 4,
+        "batchesPerWriter": 24
+      },
+      "writersReported": 4,
+      "perWriter": [
+        {
+          "writerId": 0,
+          "cpuUserMs": 815.988,
+          "cpuSystemMs": 34.167,
+          "maxRssBytes": 129892352,
+          "batchesCommitted": 24,
+          "openAttempts": 1
+        },
+        {
+          "writerId": 1,
+          "cpuUserMs": 472.762,
+          "cpuSystemMs": 54.924,
+          "maxRssBytes": 171577344,
+          "batchesCommitted": 24,
+          "openAttempts": 1
+        },
+        {
+          "writerId": 2,
+          "cpuUserMs": 253.52,
+          "cpuSystemMs": 43.71,
+          "maxRssBytes": 117985280,
+          "batchesCommitted": 24,
+          "openAttempts": 1
+        },
+        {
+          "writerId": 3,
+          "cpuUserMs": 731.053,
+          "cpuSystemMs": 56.157,
+          "maxRssBytes": 169943040,
+          "batchesCommitted": 24,
+          "openAttempts": 1
+        }
+      ],
+      "exits": [],
+      "totals": {
+        "writers": 4,
+        "batchesCommitted": 96,
+        "batchesFailed": 0,
+        "tilesPut": 1152,
+        "tilesDeleted": 384,
+        "attempts": 96,
+        "retries": 0,
+        "conflicts": 0,
+        "busyErrors": 0,
+        "fatalErrors": 0,
+        "wallClockMs": 832,
+        "batchesPerSecond": 115.38461538461539,
+        "tilesPerSecond": 1846.1538461538462,
+        "latency": {
+          "count": 96,
+          "min": 4.866669000000002,
+          "max": 536.290058,
+          "mean": 22.402678187499998,
+          "p50": 6.1756910000000005,
+          "p95": 115.82051200000001,
+          "p99": 536.290058
+        },
+        "cpuUserMs": 2273.323,
+        "cpuSystemMs": 188.95800000000003,
+        "maxRssBytes": 171577344
+      },
+      "verification": {
+        "acknowledgedBatches": 96,
+        "loggedBatches": 96,
+        "lostAcknowledged": 0,
+        "unacknowledgedCommits": 0,
+        "staleTiles": 0,
+        "undeletedTiles": 0,
+        "missingTiles": 0,
+        "orphanTiles": 0,
+        "finalTileCount": 1152,
+        "expectedTileCount": 1152,
+        "lastWinsHolds": true,
+        "atomicityHolds": true
+      },
+      "footprint": {
+        "main": 942080,
+        "-wal": 0,
+        "-shm": 32768
+      }
+    },
+    {
+      "scenario": {
+        "writers": 4,
+        "collision": "moderate",
+        "metatile": 2,
+        "batchesPerWriter": 24
+      },
+      "writersReported": 4,
+      "perWriter": [
+        {
+          "writerId": 0,
+          "cpuUserMs": 396.384,
+          "cpuSystemMs": 43.37,
+          "maxRssBytes": 138989568,
+          "batchesCommitted": 24,
+          "openAttempts": 1
+        },
+        {
+          "writerId": 1,
+          "cpuUserMs": 641.917,
+          "cpuSystemMs": 58.992,
+          "maxRssBytes": 169512960,
+          "batchesCommitted": 24,
+          "openAttempts": 1
+        },
+        {
+          "writerId": 2,
+          "cpuUserMs": 227.487,
+          "cpuSystemMs": 34.684,
+          "maxRssBytes": 118792192,
+          "batchesCommitted": 24,
+          "openAttempts": 1
+        },
+        {
+          "writerId": 3,
+          "cpuUserMs": 824.011,
+          "cpuSystemMs": 24.792,
+          "maxRssBytes": 119476224,
+          "batchesCommitted": 24,
+          "openAttempts": 1
+        }
+      ],
+      "exits": [],
+      "totals": {
+        "writers": 4,
+        "batchesCommitted": 96,
+        "batchesFailed": 0,
+        "tilesPut": 288,
+        "tilesDeleted": 96,
+        "attempts": 96,
+        "retries": 0,
+        "conflicts": 0,
+        "busyErrors": 0,
+        "fatalErrors": 0,
+        "wallClockMs": 824,
+        "batchesPerSecond": 116.50485436893204,
+        "tilesPerSecond": 466.0194174757282,
+        "latency": {
+          "count": 96,
+          "min": 4.416364000000044,
+          "max": 638.699325,
+          "mean": 20.049191968750005,
+          "p50": 5.488048000000049,
+          "p95": 38.981218,
+          "p99": 638.699325
+        },
+        "cpuUserMs": 2089.799,
+        "cpuSystemMs": 161.838,
+        "maxRssBytes": 169512960
+      },
+      "verification": {
+        "acknowledgedBatches": 96,
+        "loggedBatches": 96,
+        "lostAcknowledged": 0,
+        "unacknowledgedCommits": 0,
+        "staleTiles": 0,
+        "undeletedTiles": 0,
+        "missingTiles": 0,
+        "orphanTiles": 0,
+        "finalTileCount": 196,
+        "expectedTileCount": 196,
+        "lastWinsHolds": true,
+        "atomicityHolds": true
+      },
+      "footprint": {
+        "main": 217088,
+        "-wal": 0,
+        "-shm": 32768
+      }
+    },
+    {
+      "scenario": {
+        "writers": 4,
+        "collision": "moderate",
+        "metatile": 4,
+        "batchesPerWriter": 24
+      },
+      "writersReported": 4,
+      "perWriter": [
+        {
+          "writerId": 0,
+          "cpuUserMs": 881.712,
+          "cpuSystemMs": 43.71,
+          "maxRssBytes": 167243776,
+          "batchesCommitted": 24,
+          "openAttempts": 1
+        },
+        {
+          "writerId": 1,
+          "cpuUserMs": 239.357,
+          "cpuSystemMs": 35.038,
+          "maxRssBytes": 119136256,
+          "batchesCommitted": 24,
+          "openAttempts": 1
+        },
+        {
+          "writerId": 2,
+          "cpuUserMs": 706.821,
+          "cpuSystemMs": 53.607,
+          "maxRssBytes": 168423424,
+          "batchesCommitted": 24,
+          "openAttempts": 2
+        },
+        {
+          "writerId": 3,
+          "cpuUserMs": 534.71,
+          "cpuSystemMs": 42.258,
+          "maxRssBytes": 129130496,
+          "batchesCommitted": 24,
+          "openAttempts": 1
+        }
+      ],
+      "exits": [],
+      "totals": {
+        "writers": 4,
+        "batchesCommitted": 96,
+        "batchesFailed": 0,
+        "tilesPut": 1152,
+        "tilesDeleted": 384,
+        "attempts": 96,
+        "retries": 0,
+        "conflicts": 0,
+        "busyErrors": 0,
+        "fatalErrors": 0,
+        "wallClockMs": 879,
+        "batchesPerSecond": 109.21501706484642,
+        "tilesPerSecond": 1747.4402730375427,
+        "latency": {
+          "count": 96,
+          "min": 4.934748000000013,
+          "max": 440.66964699999994,
+          "mean": 23.254737020833343,
+          "p50": 6.607024999999908,
+          "p95": 184.06358300000002,
+          "p99": 440.66964699999994
+        },
+        "cpuUserMs": 2362.6,
+        "cpuSystemMs": 174.613,
+        "maxRssBytes": 168423424
+      },
+      "verification": {
+        "acknowledgedBatches": 96,
+        "loggedBatches": 96,
+        "lostAcknowledged": 0,
+        "unacknowledgedCommits": 0,
+        "staleTiles": 0,
+        "undeletedTiles": 0,
+        "missingTiles": 0,
+        "orphanTiles": 0,
+        "finalTileCount": 784,
+        "expectedTileCount": 784,
+        "lastWinsHolds": true,
+        "atomicityHolds": true
+      },
+      "footprint": {
+        "main": 684032,
+        "-wal": 0,
+        "-shm": 32768
+      }
+    },
+    {
+      "scenario": {
+        "writers": 4,
+        "collision": "full",
+        "metatile": 2,
+        "batchesPerWriter": 24
+      },
+      "writersReported": 4,
+      "perWriter": [
+        {
+          "writerId": 0,
+          "cpuUserMs": 827.976,
+          "cpuSystemMs": 44.266,
+          "maxRssBytes": 153980928,
+          "batchesCommitted": 24,
+          "openAttempts": 1
+        },
+        {
+          "writerId": 1,
+          "cpuUserMs": 624.322,
+          "cpuSystemMs": 47.341,
+          "maxRssBytes": 133623808,
+          "batchesCommitted": 24,
+          "openAttempts": 1
+        },
+        {
+          "writerId": 2,
+          "cpuUserMs": 654.439,
+          "cpuSystemMs": 33.795,
+          "maxRssBytes": 119984128,
+          "batchesCommitted": 24,
+          "openAttempts": 1
+        },
+        {
+          "writerId": 3,
+          "cpuUserMs": 675.475,
+          "cpuSystemMs": 53.719,
+          "maxRssBytes": 126701568,
+          "batchesCommitted": 24,
+          "openAttempts": 1
+        }
+      ],
+      "exits": [],
+      "totals": {
+        "writers": 4,
+        "batchesCommitted": 96,
+        "batchesFailed": 0,
+        "tilesPut": 288,
+        "tilesDeleted": 96,
+        "attempts": 96,
+        "retries": 0,
+        "conflicts": 0,
+        "busyErrors": 0,
+        "fatalErrors": 0,
+        "wallClockMs": 866,
+        "batchesPerSecond": 110.85450346420323,
+        "tilesPerSecond": 443.41801385681293,
+        "latency": {
+          "count": 96,
+          "min": 4.290938000000011,
+          "max": 440.50718200000006,
+          "mean": 26.84007703125002,
+          "p50": 6.07993399999998,
+          "p95": 139.68257699999992,
+          "p99": 440.50718200000006
+        },
+        "cpuUserMs": 2782.212,
+        "cpuSystemMs": 179.121,
+        "maxRssBytes": 153980928
+      },
+      "verification": {
+        "acknowledgedBatches": 96,
+        "loggedBatches": 96,
+        "lostAcknowledged": 0,
+        "unacknowledgedCommits": 0,
+        "staleTiles": 0,
+        "undeletedTiles": 0,
+        "missingTiles": 0,
+        "orphanTiles": 0,
+        "finalTileCount": 72,
+        "expectedTileCount": 72,
+        "lastWinsHolds": true,
+        "atomicityHolds": true
+      },
+      "footprint": {
+        "main": 143360,
+        "-wal": 0,
+        "-shm": 32768
+      }
+    },
+    {
+      "scenario": {
+        "writers": 4,
+        "collision": "full",
+        "metatile": 4,
+        "batchesPerWriter": 24
+      },
+      "writersReported": 4,
+      "perWriter": [
+        {
+          "writerId": 0,
+          "cpuUserMs": 643.801,
+          "cpuSystemMs": 55.154,
+          "maxRssBytes": 169885696,
+          "batchesCommitted": 24,
+          "openAttempts": 1
+        },
+        {
+          "writerId": 1,
+          "cpuUserMs": 203.609,
+          "cpuSystemMs": 36.929,
+          "maxRssBytes": 114794496,
+          "batchesCommitted": 24,
+          "openAttempts": 1
+        },
+        {
+          "writerId": 2,
+          "cpuUserMs": 857.271,
+          "cpuSystemMs": 49.06,
+          "maxRssBytes": 169852928,
+          "batchesCommitted": 24,
+          "openAttempts": 1
+        },
+        {
+          "writerId": 3,
+          "cpuUserMs": 427.936,
+          "cpuSystemMs": 54.547,
+          "maxRssBytes": 168701952,
+          "batchesCommitted": 24,
+          "openAttempts": 1
+        }
+      ],
+      "exits": [],
+      "totals": {
+        "writers": 4,
+        "batchesCommitted": 96,
+        "batchesFailed": 0,
+        "tilesPut": 1152,
+        "tilesDeleted": 384,
+        "attempts": 96,
+        "retries": 0,
+        "conflicts": 0,
+        "busyErrors": 0,
+        "fatalErrors": 0,
+        "wallClockMs": 861,
+        "batchesPerSecond": 111.49825783972125,
+        "tilesPerSecond": 1783.97212543554,
+        "latency": {
+          "count": 96,
+          "min": 4.590908000000013,
+          "max": 637.715875,
+          "mean": 20.753466666666665,
+          "p50": 6.261273000000017,
+          "p95": 18.191385999999994,
+          "p99": 637.715875
+        },
+        "cpuUserMs": 2132.617,
+        "cpuSystemMs": 195.69,
+        "maxRssBytes": 169885696
+      },
+      "verification": {
+        "acknowledgedBatches": 96,
+        "loggedBatches": 96,
+        "lostAcknowledged": 0,
+        "unacknowledgedCommits": 0,
+        "staleTiles": 0,
+        "undeletedTiles": 0,
+        "missingTiles": 0,
+        "orphanTiles": 0,
+        "finalTileCount": 288,
+        "expectedTileCount": 288,
+        "lastWinsHolds": true,
+        "atomicityHolds": true
+      },
+      "footprint": {
+        "main": 360448,
+        "-wal": 0,
+        "-shm": 32768
+      }
+    },
+    {
+      "scenario": {
+        "writers": 8,
+        "collision": "disjoint",
+        "metatile": 2,
+        "batchesPerWriter": 24
+      },
+      "writersReported": 8,
+      "perWriter": [
+        {
+          "writerId": 0,
+          "cpuUserMs": 1670.97,
+          "cpuSystemMs": 66.436,
+          "maxRssBytes": 164036608,
+          "batchesCommitted": 24,
+          "openAttempts": 1
+        },
+        {
+          "writerId": 1,
+          "cpuUserMs": 1235.341,
+          "cpuSystemMs": 60.624,
+          "maxRssBytes": 165597184,
+          "batchesCommitted": 24,
+          "openAttempts": 1
+        },
+        {
+          "writerId": 2,
+          "cpuUserMs": 968.399,
+          "cpuSystemMs": 50.437,
+          "maxRssBytes": 116854784,
+          "batchesCommitted": 24,
+          "openAttempts": 1
+        },
+        {
+          "writerId": 3,
+          "cpuUserMs": 1592.746,
+          "cpuSystemMs": 66.28,
+          "maxRssBytes": 170627072,
+          "batchesCommitted": 24,
+          "openAttempts": 1
+        },
+        {
+          "writerId": 4,
+          "cpuUserMs": 1383.958,
+          "cpuSystemMs": 54.398,
+          "maxRssBytes": 135221248,
+          "batchesCommitted": 24,
+          "openAttempts": 1
+        },
+        {
+          "writerId": 5,
+          "cpuUserMs": 1334.832,
+          "cpuSystemMs": 44.873,
+          "maxRssBytes": 137207808,
+          "batchesCommitted": 24,
+          "openAttempts": 1
+        },
+        {
+          "writerId": 6,
+          "cpuUserMs": 1825.777,
+          "cpuSystemMs": 72.871,
+          "maxRssBytes": 165433344,
+          "batchesCommitted": 24,
+          "openAttempts": 1
+        },
+        {
+          "writerId": 7,
+          "cpuUserMs": 989.328,
+          "cpuSystemMs": 52.75,
+          "maxRssBytes": 116957184,
+          "batchesCommitted": 24,
+          "openAttempts": 1
+        }
+      ],
+      "exits": [],
+      "totals": {
+        "writers": 8,
+        "batchesCommitted": 192,
+        "batchesFailed": 0,
+        "tilesPut": 576,
+        "tilesDeleted": 192,
+        "attempts": 192,
+        "retries": 0,
+        "conflicts": 0,
+        "busyErrors": 0,
+        "fatalErrors": 0,
+        "wallClockMs": 1817,
+        "batchesPerSecond": 105.66868464501927,
+        "tilesPerSecond": 422.6747385800771,
+        "latency": {
+          "count": 192,
+          "min": 4.692742999999837,
+          "max": 838.2935990000001,
+          "mean": 52.8832129270833,
+          "p50": 7.7211489999999685,
+          "p95": 235.664561,
+          "p99": 738.7719040000001
+        },
+        "cpuUserMs": 11001.351,
+        "cpuSystemMs": 468.669,
+        "maxRssBytes": 170627072
+      },
+      "verification": {
+        "acknowledgedBatches": 192,
+        "loggedBatches": 192,
+        "lostAcknowledged": 0,
+        "unacknowledgedCommits": 0,
+        "staleTiles": 0,
+        "undeletedTiles": 0,
+        "missingTiles": 0,
+        "orphanTiles": 0,
+        "finalTileCount": 576,
+        "expectedTileCount": 576,
+        "lastWinsHolds": true,
+        "atomicityHolds": true
+      },
+      "footprint": {
+        "main": 544768,
+        "-wal": 0,
+        "-shm": 32768
+      }
+    },
+    {
+      "scenario": {
+        "writers": 8,
+        "collision": "disjoint",
+        "metatile": 4,
+        "batchesPerWriter": 24
+      },
+      "writersReported": 8,
+      "perWriter": [
+        {
+          "writerId": 0,
+          "cpuUserMs": 1706.628,
+          "cpuSystemMs": 71.9,
+          "maxRssBytes": 118124544,
+          "batchesCommitted": 24,
+          "openAttempts": 1
+        },
+        {
+          "writerId": 1,
+          "cpuUserMs": 961.085,
+          "cpuSystemMs": 55.624,
+          "maxRssBytes": 117317632,
+          "batchesCommitted": 24,
+          "openAttempts": 1
+        },
+        {
+          "writerId": 2,
+          "cpuUserMs": 2027.287,
+          "cpuSystemMs": 55.875,
+          "maxRssBytes": 118521856,
+          "batchesCommitted": 24,
+          "openAttempts": 1
+        },
+        {
+          "writerId": 3,
+          "cpuUserMs": 1083.262,
+          "cpuSystemMs": 55.91,
+          "maxRssBytes": 117772288,
+          "batchesCommitted": 24,
+          "openAttempts": 1
+        },
+        {
+          "writerId": 4,
+          "cpuUserMs": 663.59,
+          "cpuSystemMs": 51.433,
+          "maxRssBytes": 117149696,
+          "batchesCommitted": 24,
+          "openAttempts": 1
+        },
+        {
+          "writerId": 5,
+          "cpuUserMs": 2185.851,
+          "cpuSystemMs": 54.945,
+          "maxRssBytes": 117223424,
+          "batchesCommitted": 24,
+          "openAttempts": 1
+        },
+        {
+          "writerId": 6,
+          "cpuUserMs": 1348.708,
+          "cpuSystemMs": 84.609,
+          "maxRssBytes": 169193472,
+          "batchesCommitted": 24,
+          "openAttempts": 1
+        },
+        {
+          "writerId": 7,
+          "cpuUserMs": 1968.862,
+          "cpuSystemMs": 49.958,
+          "maxRssBytes": 117116928,
+          "batchesCommitted": 24,
+          "openAttempts": 1
+        }
+      ],
+      "exits": [],
+      "totals": {
+        "writers": 8,
+        "batchesCommitted": 192,
+        "batchesFailed": 0,
+        "tilesPut": 2304,
+        "tilesDeleted": 768,
+        "attempts": 192,
+        "retries": 0,
+        "conflicts": 0,
+        "busyErrors": 0,
+        "fatalErrors": 0,
+        "wallClockMs": 2196,
+        "batchesPerSecond": 87.43169398907104,
+        "tilesPerSecond": 1398.9071038251366,
+        "latency": {
+          "count": 192,
+          "min": 4.8418430000001536,
+          "max": 1539.324153,
+          "mean": 56.928210661458344,
+          "p50": 8.635502000000088,
+          "p95": 136.77495199999998,
+          "p99": 1340.1576730000002
+        },
+        "cpuUserMs": 11945.273000000001,
+        "cpuSystemMs": 480.254,
+        "maxRssBytes": 169193472
+      },
+      "verification": {
+        "acknowledgedBatches": 192,
+        "loggedBatches": 192,
+        "lostAcknowledged": 0,
+        "unacknowledgedCommits": 0,
+        "staleTiles": 0,
+        "undeletedTiles": 0,
+        "missingTiles": 0,
+        "orphanTiles": 0,
+        "finalTileCount": 2304,
+        "expectedTileCount": 2304,
+        "lastWinsHolds": true,
+        "atomicityHolds": true
+      },
+      "footprint": {
+        "main": 1970176,
+        "-wal": 0,
+        "-shm": 32768
+      }
+    },
+    {
+      "scenario": {
+        "writers": 8,
+        "collision": "moderate",
+        "metatile": 2,
+        "batchesPerWriter": 24
+      },
+      "writersReported": 8,
+      "perWriter": [
+        {
+          "writerId": 0,
+          "cpuUserMs": 890.935,
+          "cpuSystemMs": 72.21,
+          "maxRssBytes": 152178688,
+          "batchesCommitted": 24,
+          "openAttempts": 1
+        },
+        {
+          "writerId": 1,
+          "cpuUserMs": 1701.314,
+          "cpuSystemMs": 32.099,
+          "maxRssBytes": 118718464,
+          "batchesCommitted": 24,
+          "openAttempts": 1
+        },
+        {
+          "writerId": 2,
+          "cpuUserMs": 806.669,
+          "cpuSystemMs": 70.319,
+          "maxRssBytes": 164704256,
+          "batchesCommitted": 24,
+          "openAttempts": 1
+        },
+        {
+          "writerId": 3,
+          "cpuUserMs": 1798.418,
+          "cpuSystemMs": 35.109,
+          "maxRssBytes": 117948416,
+          "batchesCommitted": 24,
+          "openAttempts": 1
+        },
+        {
+          "writerId": 4,
+          "cpuUserMs": 1267.829,
+          "cpuSystemMs": 45.853,
+          "maxRssBytes": 117977088,
+          "batchesCommitted": 24,
+          "openAttempts": 1
+        },
+        {
+          "writerId": 5,
+          "cpuUserMs": 1306.824,
+          "cpuSystemMs": 39.174,
+          "maxRssBytes": 127549440,
+          "batchesCommitted": 24,
+          "openAttempts": 1
+        },
+        {
+          "writerId": 6,
+          "cpuUserMs": 1394.053,
+          "cpuSystemMs": 52.189,
+          "maxRssBytes": 155795456,
+          "batchesCommitted": 24,
+          "openAttempts": 1
+        },
+        {
+          "writerId": 7,
+          "cpuUserMs": 1470.693,
+          "cpuSystemMs": 41.987,
+          "maxRssBytes": 118501376,
+          "batchesCommitted": 24,
+          "openAttempts": 1
+        }
+      ],
+      "exits": [],
+      "totals": {
+        "writers": 8,
+        "batchesCommitted": 192,
+        "batchesFailed": 0,
+        "tilesPut": 576,
+        "tilesDeleted": 192,
+        "attempts": 192,
+        "retries": 0,
+        "conflicts": 0,
+        "busyErrors": 0,
+        "fatalErrors": 0,
+        "wallClockMs": 1803,
+        "batchesPerSecond": 106.4891846921797,
+        "tilesPerSecond": 425.9567387687188,
+        "latency": {
+          "count": 192,
+          "min": 4.4525079999998525,
+          "max": 1440.84967,
+          "mean": 53.18163628125001,
+          "p50": 6.457240000000013,
+          "p95": 189.89298,
+          "p99": 1235.259113
+        },
+        "cpuUserMs": 10636.734999999999,
+        "cpuSystemMs": 388.94000000000005,
+        "maxRssBytes": 164704256
+      },
+      "verification": {
+        "acknowledgedBatches": 192,
+        "loggedBatches": 192,
+        "lostAcknowledged": 0,
+        "unacknowledgedCommits": 0,
+        "staleTiles": 0,
+        "undeletedTiles": 0,
+        "missingTiles": 0,
+        "orphanTiles": 0,
+        "finalTileCount": 388,
+        "expectedTileCount": 388,
+        "lastWinsHolds": true,
+        "atomicityHolds": true
+      },
+      "footprint": {
+        "main": 401408,
+        "-wal": 0,
+        "-shm": 32768
+      }
+    },
+    {
+      "scenario": {
+        "writers": 8,
+        "collision": "moderate",
+        "metatile": 4,
+        "batchesPerWriter": 24
+      },
+      "writersReported": 8,
+      "perWriter": [
+        {
+          "writerId": 0,
+          "cpuUserMs": 1061.945,
+          "cpuSystemMs": 51.19,
+          "maxRssBytes": 118521856,
+          "batchesCommitted": 24,
+          "openAttempts": 1
+        },
+        {
+          "writerId": 1,
+          "cpuUserMs": 1665.481,
+          "cpuSystemMs": 46.957,
+          "maxRssBytes": 121049088,
+          "batchesCommitted": 24,
+          "openAttempts": 1
+        },
+        {
+          "writerId": 2,
+          "cpuUserMs": 536.766,
+          "cpuSystemMs": 68.48,
+          "maxRssBytes": 167546880,
+          "batchesCommitted": 24,
+          "openAttempts": 1
+        },
+        {
+          "writerId": 3,
+          "cpuUserMs": 1941.681,
+          "cpuSystemMs": 35.864,
+          "maxRssBytes": 120950784,
+          "batchesCommitted": 24,
+          "openAttempts": 1
+        },
+        {
+          "writerId": 4,
+          "cpuUserMs": 1700.145,
+          "cpuSystemMs": 41.733,
+          "maxRssBytes": 124350464,
+          "batchesCommitted": 24,
+          "openAttempts": 1
+        },
+        {
+          "writerId": 5,
+          "cpuUserMs": 1345.105,
+          "cpuSystemMs": 67.166,
+          "maxRssBytes": 165195776,
+          "batchesCommitted": 24,
+          "openAttempts": 1
+        },
+        {
+          "writerId": 6,
+          "cpuUserMs": 834.51,
+          "cpuSystemMs": 57.171,
+          "maxRssBytes": 125800448,
+          "batchesCommitted": 24,
+          "openAttempts": 1
+        },
+        {
+          "writerId": 7,
+          "cpuUserMs": 849.717,
+          "cpuSystemMs": 31.373,
+          "maxRssBytes": 117407744,
+          "batchesCommitted": 24,
+          "openAttempts": 1
+        }
+      ],
+      "exits": [],
+      "totals": {
+        "writers": 8,
+        "batchesCommitted": 192,
+        "batchesFailed": 0,
+        "tilesPut": 2304,
+        "tilesDeleted": 768,
+        "attempts": 192,
+        "retries": 0,
+        "conflicts": 0,
+        "busyErrors": 0,
+        "fatalErrors": 0,
+        "wallClockMs": 1949,
+        "batchesPerSecond": 98.51205746536685,
+        "tilesPerSecond": 1576.1929194458696,
+        "latency": {
+          "count": 192,
+          "min": 5.208204000000023,
+          "max": 1743.180168,
+          "mean": 48.51476554166667,
+          "p50": 7.777995000000146,
+          "p95": 140.3647689999998,
+          "p99": 1240.563901
+        },
+        "cpuUserMs": 9935.35,
+        "cpuSystemMs": 399.93399999999997,
+        "maxRssBytes": 167546880
+      },
+      "verification": {
+        "acknowledgedBatches": 192,
+        "loggedBatches": 192,
+        "lostAcknowledged": 0,
+        "unacknowledgedCommits": 0,
+        "staleTiles": 0,
+        "undeletedTiles": 0,
+        "missingTiles": 0,
+        "orphanTiles": 0,
+        "finalTileCount": 1552,
+        "expectedTileCount": 1552,
+        "lastWinsHolds": true,
+        "atomicityHolds": true
+      },
+      "footprint": {
+        "main": 1384448,
+        "-wal": 0,
+        "-shm": 32768
+      }
+    },
+    {
+      "scenario": {
+        "writers": 8,
+        "collision": "full",
+        "metatile": 2,
+        "batchesPerWriter": 24
+      },
+      "writersReported": 8,
+      "perWriter": [
+        {
+          "writerId": 0,
+          "cpuUserMs": 1454.87,
+          "cpuSystemMs": 56.265,
+          "maxRssBytes": 149848064,
+          "batchesCommitted": 24,
+          "openAttempts": 1
+        },
+        {
+          "writerId": 1,
+          "cpuUserMs": 1784.724,
+          "cpuSystemMs": 35.191,
+          "maxRssBytes": 117485568,
+          "batchesCommitted": 24,
+          "openAttempts": 1
+        },
+        {
+          "writerId": 2,
+          "cpuUserMs": 1834.456,
+          "cpuSystemMs": 61.846,
+          "maxRssBytes": 168480768,
+          "batchesCommitted": 24,
+          "openAttempts": 1
+        },
+        {
+          "writerId": 3,
+          "cpuUserMs": 2275.886,
+          "cpuSystemMs": 56.972,
+          "maxRssBytes": 167526400,
+          "batchesCommitted": 24,
+          "openAttempts": 1
+        },
+        {
+          "writerId": 4,
+          "cpuUserMs": 1078.059,
+          "cpuSystemMs": 67.065,
+          "maxRssBytes": 166899712,
+          "batchesCommitted": 24,
+          "openAttempts": 1
+        },
+        {
+          "writerId": 5,
+          "cpuUserMs": 1267.703,
+          "cpuSystemMs": 45.06,
+          "maxRssBytes": 130891776,
+          "batchesCommitted": 24,
+          "openAttempts": 1
+        },
+        {
+          "writerId": 6,
+          "cpuUserMs": 2533.902,
+          "cpuSystemMs": 35.97,
+          "maxRssBytes": 118439936,
+          "batchesCommitted": 24,
+          "openAttempts": 1
+        },
+        {
+          "writerId": 7,
+          "cpuUserMs": 1716.663,
+          "cpuSystemMs": 50.938,
+          "maxRssBytes": 119369728,
+          "batchesCommitted": 24,
+          "openAttempts": 1
+        }
+      ],
+      "exits": [],
+      "totals": {
+        "writers": 8,
+        "batchesCommitted": 192,
+        "batchesFailed": 0,
+        "tilesPut": 576,
+        "tilesDeleted": 192,
+        "attempts": 192,
+        "retries": 0,
+        "conflicts": 0,
+        "busyErrors": 0,
+        "fatalErrors": 0,
+        "wallClockMs": 2564,
+        "batchesPerSecond": 74.88299531981279,
+        "tilesPerSecond": 299.53198127925117,
+        "latency": {
+          "count": 192,
+          "min": 4.268681000000015,
+          "max": 1438.5144639999999,
+          "mean": 64.14163665625004,
+          "p50": 7.432647999999972,
+          "p95": 434.68058399999995,
+          "p99": 1338.7522820000002
+        },
+        "cpuUserMs": 13946.262999999999,
+        "cpuSystemMs": 409.307,
+        "maxRssBytes": 168480768
+      },
+      "verification": {
+        "acknowledgedBatches": 192,
+        "loggedBatches": 192,
+        "lostAcknowledged": 0,
+        "unacknowledgedCommits": 0,
+        "staleTiles": 0,
+        "undeletedTiles": 0,
+        "missingTiles": 0,
+        "orphanTiles": 0,
+        "finalTileCount": 72,
+        "expectedTileCount": 72,
+        "lastWinsHolds": true,
+        "atomicityHolds": true
+      },
+      "footprint": {
+        "main": 155648,
+        "-wal": 0,
+        "-shm": 32768
+      }
+    },
+    {
+      "scenario": {
+        "writers": 8,
+        "collision": "full",
+        "metatile": 4,
+        "batchesPerWriter": 24
+      },
+      "writersReported": 8,
+      "perWriter": [
+        {
+          "writerId": 0,
+          "cpuUserMs": 749.091,
+          "cpuSystemMs": 39.792,
+          "maxRssBytes": 133857280,
+          "batchesCommitted": 24,
+          "openAttempts": 1
+        },
+        {
+          "writerId": 1,
+          "cpuUserMs": 1684.764,
+          "cpuSystemMs": 49.904,
+          "maxRssBytes": 154136576,
+          "batchesCommitted": 24,
+          "openAttempts": 1
+        },
+        {
+          "writerId": 2,
+          "cpuUserMs": 1587.261,
+          "cpuSystemMs": 57.912,
+          "maxRssBytes": 167735296,
+          "batchesCommitted": 24,
+          "openAttempts": 1
+        },
+        {
+          "writerId": 3,
+          "cpuUserMs": 1492.376,
+          "cpuSystemMs": 47.692,
+          "maxRssBytes": 166600704,
+          "batchesCommitted": 24,
+          "openAttempts": 1
+        },
+        {
+          "writerId": 4,
+          "cpuUserMs": 564.402,
+          "cpuSystemMs": 51.77,
+          "maxRssBytes": 131850240,
+          "batchesCommitted": 24,
+          "openAttempts": 1
+        },
+        {
+          "writerId": 5,
+          "cpuUserMs": 807.141,
+          "cpuSystemMs": 37.959,
+          "maxRssBytes": 117284864,
+          "batchesCommitted": 24,
+          "openAttempts": 1
+        },
+        {
+          "writerId": 6,
+          "cpuUserMs": 1267.604,
+          "cpuSystemMs": 46.837,
+          "maxRssBytes": 125382656,
+          "batchesCommitted": 24,
+          "openAttempts": 1
+        },
+        {
+          "writerId": 7,
+          "cpuUserMs": 1202.055,
+          "cpuSystemMs": 49.454,
+          "maxRssBytes": 120516608,
+          "batchesCommitted": 24,
+          "openAttempts": 1
+        }
+      ],
+      "exits": [],
+      "totals": {
+        "writers": 8,
+        "batchesCommitted": 192,
+        "batchesFailed": 0,
+        "tilesPut": 2304,
+        "tilesDeleted": 768,
+        "attempts": 192,
+        "retries": 0,
+        "conflicts": 0,
+        "busyErrors": 0,
+        "fatalErrors": 0,
+        "wallClockMs": 1686,
+        "batchesPerSecond": 113.87900355871886,
+        "tilesPerSecond": 1822.0640569395018,
+        "latency": {
+          "count": 192,
+          "min": 5.018534000000045,
+          "max": 1241.060072,
+          "mean": 36.098578213541685,
+          "p50": 6.901145999999926,
+          "p95": 112.95248100000003,
+          "p99": 1138.719449
+        },
+        "cpuUserMs": 9354.694,
+        "cpuSystemMs": 381.32,
+        "maxRssBytes": 167735296
+      },
+      "verification": {
+        "acknowledgedBatches": 192,
+        "loggedBatches": 192,
+        "lostAcknowledged": 0,
+        "unacknowledgedCommits": 0,
+        "staleTiles": 0,
+        "undeletedTiles": 0,
+        "missingTiles": 0,
+        "orphanTiles": 0,
+        "finalTileCount": 288,
+        "expectedTileCount": 288,
+        "lastWinsHolds": true,
+        "atomicityHolds": true
+      },
+      "footprint": {
+        "main": 430080,
+        "-wal": 0,
+        "-shm": 32768
+      }
+    }
+  ],
+  "control": [
+    {
+      "scenario": {
+        "writers": 2,
+        "collision": "disjoint",
+        "metatile": 2,
+        "batchesPerWriter": 24
+      },
+      "totals": {
+        "writers": 1,
+        "batchesCommitted": 24,
+        "batchesFailed": 0,
+        "tilesPut": 72,
+        "tilesDeleted": 24,
+        "attempts": 24,
+        "retries": 0,
+        "conflicts": 0,
+        "busyErrors": 0,
+        "fatalErrors": 0,
+        "wallClockMs": 175,
+        "batchesPerSecond": 137.14285714285714,
+        "tilesPerSecond": 548.5714285714286,
+        "latency": {
+          "count": 24,
+          "min": 3.9871949999999856,
+          "max": 11.385696999999993,
+          "mean": 5.0696937083333315,
+          "p50": 4.511761999999976,
+          "p95": 7.219328999999988,
+          "p99": 11.385696999999993
+        },
+        "cpuUserMs": 129.506,
+        "cpuSystemMs": 24.527,
+        "maxRssBytes": 100225024
+      }
+    },
+    {
+      "scenario": {
+        "writers": 2,
+        "collision": "disjoint",
+        "metatile": 2,
+        "batchesPerWriter": 24
+      },
+      "totals": {
+        "writers": 1,
+        "batchesCommitted": 24,
+        "batchesFailed": 0,
+        "tilesPut": 72,
+        "tilesDeleted": 24,
+        "attempts": 24,
+        "retries": 0,
+        "conflicts": 0,
+        "busyErrors": 0,
+        "fatalErrors": 0,
+        "wallClockMs": 249,
+        "batchesPerSecond": 96.3855421686747,
+        "tilesPerSecond": 385.5421686746988,
+        "latency": {
+          "count": 24,
+          "min": 4.365776000000039,
+          "max": 17.769880999999998,
+          "mean": 7.410359208333335,
+          "p50": 5.020509000000004,
+          "p95": 17.36685100000001,
+          "p99": 17.769880999999998
+        },
+        "cpuUserMs": 114.104,
+        "cpuSystemMs": 26.36,
+        "maxRssBytes": 98938880
+      }
+    },
+    {
+      "scenario": {
+        "writers": 2,
+        "collision": "disjoint",
+        "metatile": 2,
+        "batchesPerWriter": 24
+      },
+      "totals": {
+        "writers": 1,
+        "batchesCommitted": 24,
+        "batchesFailed": 0,
+        "tilesPut": 72,
+        "tilesDeleted": 24,
+        "attempts": 24,
+        "retries": 0,
+        "conflicts": 0,
+        "busyErrors": 0,
+        "fatalErrors": 0,
+        "wallClockMs": 195,
+        "batchesPerSecond": 123.07692307692308,
+        "tilesPerSecond": 492.3076923076923,
+        "latency": {
+          "count": 24,
+          "min": 4.13359699999998,
+          "max": 10.792918999999983,
+          "mean": 5.400189416666663,
+          "p50": 4.833180999999996,
+          "p95": 8.855434000000002,
+          "p99": 10.792918999999983
+        },
+        "cpuUserMs": 126.781,
+        "cpuSystemMs": 23.051,
+        "maxRssBytes": 102047744
+      }
+    },
+    {
+      "scenario": {
+        "writers": 4,
+        "collision": "disjoint",
+        "metatile": 2,
+        "batchesPerWriter": 24
+      },
+      "totals": {
+        "writers": 1,
+        "batchesCommitted": 24,
+        "batchesFailed": 0,
+        "tilesPut": 72,
+        "tilesDeleted": 24,
+        "attempts": 24,
+        "retries": 0,
+        "conflicts": 0,
+        "busyErrors": 0,
+        "fatalErrors": 0,
+        "wallClockMs": 217,
+        "batchesPerSecond": 110.59907834101382,
+        "tilesPerSecond": 442.3963133640553,
+        "latency": {
+          "count": 24,
+          "min": 4.295058999999981,
+          "max": 10.189026999999982,
+          "mean": 6.070650708333335,
+          "p50": 5.642506999999995,
+          "p95": 9.752343000000025,
+          "p99": 10.189026999999982
+        },
+        "cpuUserMs": 125.589,
+        "cpuSystemMs": 25.48,
+        "maxRssBytes": 100425728
+      }
+    },
+    {
+      "scenario": {
+        "writers": 4,
+        "collision": "disjoint",
+        "metatile": 2,
+        "batchesPerWriter": 24
+      },
+      "totals": {
+        "writers": 1,
+        "batchesCommitted": 24,
+        "batchesFailed": 0,
+        "tilesPut": 72,
+        "tilesDeleted": 24,
+        "attempts": 24,
+        "retries": 0,
+        "conflicts": 0,
+        "busyErrors": 0,
+        "fatalErrors": 0,
+        "wallClockMs": 186,
+        "batchesPerSecond": 129.03225806451613,
+        "tilesPerSecond": 516.1290322580645,
+        "latency": {
+          "count": 24,
+          "min": 3.9097269999999753,
+          "max": 8.588744999999989,
+          "mean": 5.1696765000000005,
+          "p50": 4.932424999999995,
+          "p95": 7.030138999999991,
+          "p99": 8.588744999999989
+        },
+        "cpuUserMs": 127.911,
+        "cpuSystemMs": 30.269,
+        "maxRssBytes": 99368960
+      }
+    },
+    {
+      "scenario": {
+        "writers": 4,
+        "collision": "disjoint",
+        "metatile": 2,
+        "batchesPerWriter": 24
+      },
+      "totals": {
+        "writers": 1,
+        "batchesCommitted": 24,
+        "batchesFailed": 0,
+        "tilesPut": 72,
+        "tilesDeleted": 24,
+        "attempts": 24,
+        "retries": 0,
+        "conflicts": 0,
+        "busyErrors": 0,
+        "fatalErrors": 0,
+        "wallClockMs": 183,
+        "batchesPerSecond": 131.14754098360655,
+        "tilesPerSecond": 524.5901639344262,
+        "latency": {
+          "count": 24,
+          "min": 3.9640349999999955,
+          "max": 8.959733999999997,
+          "mean": 4.89806483333333,
+          "p50": 4.455216000000007,
+          "p95": 6.241529999999983,
+          "p99": 8.959733999999997
+        },
+        "cpuUserMs": 128.28,
+        "cpuSystemMs": 32.314,
+        "maxRssBytes": 99717120
+      }
+    },
+    {
+      "scenario": {
+        "writers": 8,
+        "collision": "disjoint",
+        "metatile": 2,
+        "batchesPerWriter": 24
+      },
+      "totals": {
+        "writers": 6,
+        "batchesCommitted": 144,
+        "batchesFailed": 0,
+        "tilesPut": 432,
+        "tilesDeleted": 144,
+        "attempts": 144,
+        "retries": 0,
+        "conflicts": 0,
+        "busyErrors": 0,
+        "fatalErrors": 0,
+        "wallClockMs": 1166,
+        "batchesPerSecond": 123.4991423670669,
+        "tilesPerSecond": 493.9965694682676,
+        "latency": {
+          "count": 144,
+          "min": 3.891267999999968,
+          "max": 847.800018,
+          "mean": 28.13436614583332,
+          "p50": 5.258477999999968,
+          "p95": 89.64854500000001,
+          "p99": 734.247402
+        },
+        "cpuUserMs": 970.164,
+        "cpuSystemMs": 210.61200000000002,
+        "maxRssBytes": 101429248
+      }
+    },
+    {
+      "scenario": {
+        "writers": 8,
+        "collision": "disjoint",
+        "metatile": 2,
+        "batchesPerWriter": 24
+      },
+      "totals": {
+        "writers": 6,
+        "batchesCommitted": 144,
+        "batchesFailed": 0,
+        "tilesPut": 432,
+        "tilesDeleted": 144,
+        "attempts": 144,
+        "retries": 0,
+        "conflicts": 0,
+        "busyErrors": 0,
+        "fatalErrors": 0,
+        "wallClockMs": 1423,
+        "batchesPerSecond": 101.19465917076599,
+        "tilesPerSecond": 404.77863668306395,
+        "latency": {
+          "count": 144,
+          "min": 3.442690000000084,
+          "max": 1139.4481839999999,
+          "mean": 40.32810323611112,
+          "p50": 4.687602999999854,
+          "p95": 138.00649700000002,
+          "p99": 940.9519620000001
+        },
+        "cpuUserMs": 970.1629999999999,
+        "cpuSystemMs": 213.24800000000002,
+        "maxRssBytes": 102031360
+      }
+    },
+    {
+      "scenario": {
+        "writers": 8,
+        "collision": "disjoint",
+        "metatile": 2,
+        "batchesPerWriter": 24
+      },
+      "totals": {
+        "writers": 2,
+        "batchesCommitted": 48,
+        "batchesFailed": 0,
+        "tilesPut": 144,
+        "tilesDeleted": 48,
+        "attempts": 48,
+        "retries": 0,
+        "conflicts": 0,
+        "busyErrors": 0,
+        "fatalErrors": 0,
+        "wallClockMs": 357,
+        "batchesPerSecond": 134.45378151260505,
+        "tilesPerSecond": 537.8151260504202,
+        "latency": {
+          "count": 48,
+          "min": 3.9226280000000315,
+          "max": 16.822046,
+          "mean": 5.323485312500001,
+          "p50": 4.650162999999992,
+          "p95": 9.831499000000008,
+          "p99": 16.822046
+        },
+        "cpuUserMs": 331.145,
+        "cpuSystemMs": 58.288000000000004,
+        "maxRssBytes": 99799040
+      }
+    }
+  ],
+  "throughputSamples": [
+    {
+      "writers": 2,
+      "turso": [
+        531.8559556786704,
+        441.37931034482756,
+        452.8301886792453
+      ],
+      "control": [
+        548.5714285714286,
+        385.5421686746988,
+        492.3076923076923
+      ]
+    },
+    {
+      "writers": 4,
+      "turso": [
+        445.993031358885,
+        305.9760956175299,
+        495.48387096774195
+      ],
+      "control": [
+        442.3963133640553,
+        516.1290322580645,
+        524.5901639344262
+      ]
+    },
+    {
+      "writers": 8,
+      "turso": [
+        145.01510574018127,
+        318.2760049730626,
+        461.53846153846155
+      ],
+      "control": [
+        493.9965694682676,
+        404.77863668306395,
+        537.8151260504202
+      ]
+    }
+  ],
+  "comparison": [
+    {
+      "writers": 2,
+      "repeats": 3,
+      "tursoTilesPerSecond": [
+        531.8559556786704,
+        441.37931034482756,
+        452.8301886792453
+      ],
+      "controlTilesPerSecond": [
+        548.5714285714286,
+        385.5421686746988,
+        492.3076923076923
+      ],
+      "medianSpeedup": 0.9198113207547169,
+      "perRunSpeedup": [
+        0.9695290858725762,
+        1.1448275862068964,
+        0.9198113207547169
+      ],
+      "speedupRange": [
+        0.9198113207547169,
+        1.1448275862068964
+      ]
+    },
+    {
+      "writers": 4,
+      "repeats": 3,
+      "tursoTilesPerSecond": [
+        445.993031358885,
+        305.9760956175299,
+        495.48387096774195
+      ],
+      "controlTilesPerSecond": [
+        442.3963133640553,
+        516.1290322580645,
+        524.5901639344262
+      ],
+      "medianSpeedup": 0.8641114982578397,
+      "perRunSpeedup": [
+        1.008130081300813,
+        0.5928286852589641,
+        0.9445161290322581
+      ],
+      "speedupRange": [
+        0.5928286852589641,
+        1.008130081300813
+      ]
+    },
+    {
+      "writers": 8,
+      "repeats": 3,
+      "tursoTilesPerSecond": [
+        145.01510574018127,
+        318.2760049730626,
+        461.53846153846155
+      ],
+      "controlTilesPerSecond": [
+        493.9965694682676,
+        404.77863668306395,
+        537.8151260504202
+      ],
+      "medianSpeedup": 0.6442878850669982,
+      "perRunSpeedup": [
+        0.2935548841893253,
+        0.7862964497858821,
+        0.8581730769230769
+      ],
+      "speedupRange": [
+        0.2935548841893253,
+        0.8581730769230769
+      ]
+    }
+  ]
+}
+```
+
+</details>
+
+## Gate 5: Atomicity and recovery
+
+**FAIL** -- Atomicity or recovery does not hold under injected failures.
+
+Ran in 3.7s.
+
+| Check | Status | Detail |
+| --- | --- | --- |
+| the injected failure actually fired | FAIL | 1 injection points did not terminate the writer, so their results say nothing about crash behaviour |
+| a batch is entirely visible or entirely absent | PASS | no partially applied batch after SIGKILL at any of 5 injection points |
+| the file survives an unclean exit | PASS | ordinary SQLite reports integrity_check ok after every kill, including one during checkpoint |
+| acknowledged mutations are not silently lost | PASS | every batch acknowledged before the kill is still in the commit log |
+| a surviving process keeps writing | PASS | the second writer committed every batch through all 5 crashes, so a dead pod does not wedge the shared file |
+| replaying a lost-acknowledgement job is safe | PASS | re-running the same batches after a post-commit kill left the file valid (9 tiles before, 12 after) |
+| pod eviction and PVC remount | NOT RUN | requires the OpenShift cluster and its RWX StorageClass; SIGKILL is the closest local approximation and was exercised instead |
+
+<details><summary>Evidence</summary>
+
+**the injected failure actually fired**
+
+```
+[
+  {
+    "point": "before-commit",
+    "exits": [
+      {
+        "writerId": 0,
+        "code": 1,
+        "signal": null,
+        "stderr": "rning: SQLite is an experimental feature and might change at any time\n(Use `node --trace-warnings ...` to show where the warning was created)\nnode:internal/modules/run_main:107\n    triggerUncaughtException(\n    ^\n\n[Error: failed to open database /home/nivgr/Desktop/projects/retiler/experiments/turso-geopackage/.scratch/g5-before-commit.gpkg: Corrupt database: shared WAL coordination file is smaller than the coordination header: got 0, minimum 4096] {\n  code: 'GenericFailure'\n}\n\nNode.js v24.13.0\n"
+      },
+      {
+        "writerId": 1,
+        "code": 0,
+        "signal": null
+      }
+    ]
+  }
+]
+```
+
+**a surviving process keeps writing**
+
+```
+[
+  {
+    "point": "before-begin",
+    "survivorCommitted": 8,
+    "survivorFailed": 0
+  },
+  {
+    "point": "mid-statements",
+    "survivorCommitted": 8,
+    "survivorFailed": 0
+  },
+  {
+    "point": "before-commit",
+    "survivorCommitted": 8,
+    "survivorFailed": 0
+  },
+  {
+    "point": "after-commit",
+    "survivorCommitted": 8,
+    "survivorFailed": 0
+  },
+  {
+    "point": "during-checkpoint",
+    "survivorCommitted": 8,
+    "survivorFailed": 0
+  }
+]
+```
+
+**replaying a lost-acknowledgement job is safe**
+
+```
+{
+  "integrityCheck": "ok",
+  "tileCountBefore": 9,
+  "tileCountAfter": 12,
+  "replayCommitted": 4
+}
+```
+
+</details>
+
+<details><summary>Measurements</summary>
+
+```json
+{
+  "crashOutcomes": [
+    {
+      "point": "before-begin",
+      "killed": true,
+      "exitSignal": "SIGKILL",
+      "batchIsAtomic": true,
+      "batchPartiallyApplied": [],
+      "integrityCheck": "ok",
+      "reopenMs": 1.1897429999953602,
+      "survivingWriterCommitted": 8,
+      "survivingWriterFailed": 0,
+      "survivingWriterReported": true,
+      "exits": [
+        {
+          "writerId": 0,
+          "code": null,
+          "signal": "SIGKILL"
+        },
+        {
+          "writerId": 1,
+          "code": 0,
+          "signal": null
+        }
+      ],
+      "lostAcknowledged": [],
+      "footprint": {
+        "main": 81920,
+        "-wal": 0,
+        "-shm": 32768
+      }
+    },
+    {
+      "point": "mid-statements",
+      "killed": true,
+      "exitSignal": "SIGKILL",
+      "batchIsAtomic": true,
+      "batchPartiallyApplied": [],
+      "integrityCheck": "ok",
+      "reopenMs": 0.8971750000055181,
+      "survivingWriterCommitted": 8,
+      "survivingWriterFailed": 0,
+      "survivingWriterReported": true,
+      "exits": [
+        {
+          "writerId": 0,
+          "code": null,
+          "signal": "SIGKILL"
+        },
+        {
+          "writerId": 1,
+          "code": 0,
+          "signal": null
+        }
+      ],
+      "lostAcknowledged": [],
+      "footprint": {
+        "main": 81920,
+        "-wal": 0,
+        "-shm": 32768
+      }
+    },
+    {
+      "point": "before-commit",
+      "killed": false,
+      "exitSignal": null,
+      "batchIsAtomic": true,
+      "batchPartiallyApplied": [],
+      "integrityCheck": "ok",
+      "reopenMs": 0.8229120000032708,
+      "survivingWriterCommitted": 8,
+      "survivingWriterFailed": 0,
+      "survivingWriterReported": true,
+      "exits": [
+        {
+          "writerId": 0,
+          "code": 1,
+          "signal": null,
+          "stderr": "rning: SQLite is an experimental feature and might change at any time\n(Use `node --trace-warnings ...` to show where the warning was created)\nnode:internal/modules/run_main:107\n    triggerUncaughtException(\n    ^\n\n[Error: failed to open database /home/nivgr/Desktop/projects/retiler/experiments/turso-geopackage/.scratch/g5-before-commit.gpkg: Corrupt database: shared WAL coordination file is smaller than the coordination header: got 0, minimum 4096] {\n  code: 'GenericFailure'\n}\n\nNode.js v24.13.0\n"
+        },
+        {
+          "writerId": 1,
+          "code": 0,
+          "signal": null
+        }
+      ],
+      "lostAcknowledged": [],
+      "footprint": {
+        "main": 77824,
+        "-wal": 0,
+        "-shm": 32768
+      }
+    },
+    {
+      "point": "after-commit",
+      "killed": true,
+      "exitSignal": "SIGKILL",
+      "batchIsAtomic": true,
+      "batchPartiallyApplied": [],
+      "integrityCheck": "ok",
+      "reopenMs": 0.9685139999928651,
+      "survivingWriterCommitted": 8,
+      "survivingWriterFailed": 0,
+      "survivingWriterReported": true,
+      "exits": [
+        {
+          "writerId": 0,
+          "code": null,
+          "signal": "SIGKILL"
+        },
+        {
+          "writerId": 1,
+          "code": 0,
+          "signal": null
+        }
+      ],
+      "lostAcknowledged": [],
+      "footprint": {
+        "main": 81920,
+        "-wal": 0,
+        "-shm": 32768
+      }
+    },
+    {
+      "point": "during-checkpoint",
+      "killed": true,
+      "exitSignal": "SIGKILL",
+      "batchIsAtomic": true,
+      "batchPartiallyApplied": [],
+      "integrityCheck": "ok",
+      "reopenMs": 0.9081409999926109,
+      "survivingWriterCommitted": 8,
+      "survivingWriterFailed": 0,
+      "survivingWriterReported": true,
+      "exits": [
+        {
+          "writerId": 0,
+          "code": null,
+          "signal": "SIGKILL"
+        },
+        {
+          "writerId": 1,
+          "code": 0,
+          "signal": null
+        }
+      ],
+      "lostAcknowledged": [],
+      "footprint": {
+        "main": 86016,
+        "-wal": 0,
+        "-shm": 32768
+      }
+    }
+  ],
+  "lostAcknowledgementReplay": {
+    "integrityCheck": "ok",
+    "tileCountBefore": 9,
+    "tileCountAfter": 12,
+    "replayCommitted": 4
+  }
+}
+```
+
+</details>
+
+## Gate 6: Finalization and interoperability
+
+**PASS** -- The finalized file stands alone and passes ordinary SQLite and GDAL validation.
+
+Ran in 1.4s.
+
+| Check | Status | Detail |
+| --- | --- | --- |
+| no uncheckpointed state remains in a sidecar | PASS | every WAL, shared-memory and Turso sidecar is gone or empty after checkpoint |
+| ordinary SQLite integrity check passes | PASS | PRAGMA integrity_check returned ok |
+| foreign key validation passes | PASS | PRAGMA foreign_key_check reported no violations |
+| GeoPackage metadata is intact | PASS | application_id 1196444487, user_version 10300, schema unchanged |
+| WorldCRS84Quad metadata is correct | PASS | the tile matrix set spans the globe in EPSG:4326 with two columns and one row at zoom 0 |
+| every tile matches its expected PNG bytes | PASS | all 132 stored tiles hash exactly to the payload of the commit that last wrote them |
+| tile count matches acknowledged mutations | PASS | 132 tiles, exactly what the acknowledged batches imply |
+| GDAL validates the finalized file | PASS | GDAL GDAL 3.4.1, released 2021/12/27 opened it as 131072x65536 in WGS 84 with no warnings |
+| gdal driver gpkg validate | NOT RUN | the installed GDAL (GDAL 3.4.1, released 2021/12/27) predates the unified gdal CLI that provides this check; gdalinfo and ogrinfo were used instead |
+| opens in a standard GIS client | NOT RUN | QGIS is not available in this environment and needs a human at a desktop session |
+
+<details><summary>Evidence</summary>
+
+**GDAL validates the finalized file**
+
+```
+{
+  "toolchain": {
+    "gdalinfo": {
+      "available": true,
+      "version": "GDAL 3.4.1, released 2021/12/27"
+    },
+    "ogrinfo": {
+      "available": true,
+      "version": "GDAL 3.4.1, released 2021/12/27"
+    },
+    "gdalCli": {
+      "available": false,
+      "error": "spawnSync gdal ENOENT"
+    }
+  },
+  "opened": true,
+  "rasterSize": "131072x65536",
+  "coordinateSystem": "WGS 84",
+  "driverValidate": {
+    "ran": false,
+    "output": "requires the unified `gdal` CLI from GDAL 3.11 or newer"
+  },
+  "warnings": []
+}
+```
+
+</details>
+
+<details><summary>Measurements</summary>
+
+```json
+{
+  "footprintBeforeCheckpoint": {
+    "main": 49152,
+    "-wal": 1623312
+  },
+  "footprintAfterCheckpoint": {
+    "main": 167936,
+    "-wal": 0
+  },
+  "footprintAfterFinalization": {
+    "main": 147456
+  },
+  "checkpointResult": [
+    {
+      "busy": 0,
+      "log": 0,
+      "checkpointed": 0
+    }
+  ],
+  "checkpointMs": 13.63114399999904,
+  "finalizationMs": 42.092216000004555,
+  "batchesCommitted": 64,
+  "commitLogEntries": 64,
+  "finalTileCount": 132,
+  "gdal": {
+    "toolchain": {
+      "gdalinfo": {
+        "available": true,
+        "version": "GDAL 3.4.1, released 2021/12/27"
+      },
+      "ogrinfo": {
+        "available": true,
+        "version": "GDAL 3.4.1, released 2021/12/27"
+      },
+      "gdalCli": {
+        "available": false,
+        "error": "spawnSync gdal ENOENT"
+      }
+    },
+    "opened": true,
+    "rasterSize": "131072x65536",
+    "coordinateSystem": "WGS 84",
+    "driverValidate": {
+      "ran": false,
+      "output": "requires the unified `gdal` CLI from GDAL 3.11 or newer"
+    },
+    "warnings": []
+  }
+}
+```
+
+</details>

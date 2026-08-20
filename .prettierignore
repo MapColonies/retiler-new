@@ -14,3 +14,6 @@ coverage
 helm
 reports
 .release-please-manifest.json
+# generated experiment output
+experiments/*/results
+experiments/*/.scratch
