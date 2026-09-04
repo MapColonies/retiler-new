@@ -19,7 +19,7 @@ jobs:
 
     steps:
       - name: Check out TS Project Git repository
-        uses: actions/checkout@v4
+        uses: actions/checkout@v6
 
       - name: Init nodejs
         uses: MapColonies/shared-workflows/actions/init-npm@init-npm-v1.0.0
@@ -99,7 +99,7 @@ jobs:
 
     steps:
       - name: Check out TS Project Git repository
-        uses: actions/checkout@v4
+        uses: actions/checkout@v6
 
       - name: Install pg client
         run: |
@@ -134,7 +134,7 @@ jobs:
 
     steps:
       - name: Check out Git repository
-        uses: actions/checkout@v4
+        uses: actions/checkout@v6
 
       - name: build Docker image
         run: docker build -t test-build:latest .
